@@ -1114,7 +1114,22 @@ def resolve_run_mode() -> str:
     return "WEBHOOK" if WEBHOOK_BASE_URL else "POLLING"
 
 
+
+def ensure_main_event_loop() -> None:
+    """
+    Python 3.14 no longer creates a default event loop for MainThread.
+    python-telegram-bot's run_webhook/run_polling still asks asyncio for the
+    current loop internally, so create and set one explicitly before calling it.
+    """
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        logger.info("Created and set a MainThread asyncio event loop for Python 3.14 compatibility.")
+
 def main() -> None:
+    ensure_main_event_loop()
     app = build_application()
     mode = resolve_run_mode()
 
