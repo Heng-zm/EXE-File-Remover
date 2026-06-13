@@ -7,7 +7,6 @@ What it does
 ------------
 • Deletes blocked executable files from groups/supergroups.
 • Alerts every human admin by DM with inline actions: Ban | Warn | Ignore.
-• Updates all admin alert messages once one admin handles an incident.
 • Supports English and Khmer.
 • Supports Render webhooks and local polling.
 • Persists user language/group state and incident state across restarts.
@@ -257,8 +256,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "action_done": "<i>Another admin has already handled this incident.</i>",
         "action_expired": "<i>This incident is expired or no longer exists.</i>",
         "action_not_admin": "❌ You are no longer an admin in that group, so this action was rejected.",
-        "handled_by": "👮 <b>Handled by:</b> {admin}",
-        "delete_failed": "❌ I detected a blocked file, but I could not delete it. Please give me <b>Delete Messages</b> permission.",
         "warn_in_group": (
             "⚠️ <b>Official Warning</b> — {user}\n"
             "Sending executable files is strictly prohibited here. Please do not send them again."
@@ -330,8 +327,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "action_done": "<i>Admin ផ្សេងបានចាត់ការករណីនេះរួចរាល់ហើយ។</i>",
         "action_expired": "<i>ករណីនេះផុតកំណត់ ឬមិនមានទៀតទេ។</i>",
         "action_not_admin": "❌ អ្នកមិនមែនជា Admin ក្នុងក្រុមនោះទៀតទេ ដូច្នេះមិនអាចចាត់ការបាន។",
-        "handled_by": "👮 <b>ចាត់ការដោយ:</b> {admin}",
-        "delete_failed": "❌ ខ្ញុំបានរកឃើញឯកសារហាមឃាត់ ប៉ុន្តែមិនអាចលុបវាបានទេ។ សូមផ្តល់សិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំ។",
         "warn_in_group": (
             "⚠️ <b>ការព្រមានជាផ្លូវការ</b> — {user}\n"
             "ការផ្ញើឯកសារដែលអាចដំណើរការបាន ត្រូវបានហាមឃាត់ក្នុងក្រុមនេះ។ សូមកុំផ្ញើវាម្តងទៀត។"
@@ -407,49 +402,6 @@ async def remember_user(bot_data: dict[str, Any], user_id: int, lang: str | None
             state["lang"] = lang
 
 
-def get_group_state(bot_data: dict[str, Any], chat_id: int) -> dict[str, Any]:
-    group_state = bot_data.setdefault("group_state", {})
-    return group_state.setdefault(str(chat_id), {"lang": "en"})
-
-
-def get_group_lang(bot_data: dict[str, Any], chat_id: int | None) -> str:
-    if chat_id is None:
-        return "en"
-    lang = bot_data.get("group_state", {}).get(str(chat_id), {}).get("lang", "en")
-    return lang if lang in TEXTS else "en"
-
-
-def tr_group(bot_data: dict[str, Any], chat_id: int | None, key: str, **kwargs: Any) -> str:
-    lang = get_group_lang(bot_data, chat_id)
-    text = TEXTS.get(lang, TEXTS["en"]).get(key, TEXTS["en"].get(key, key))
-    return text.format(**kwargs) if kwargs else text
-
-
-async def remember_group(bot_data: dict[str, Any], chat_id: int, *, added_by: int | None = None, lang: str | None = None) -> None:
-    async with BOT_DATA_LOCK:
-        state = get_group_state(bot_data, chat_id)
-        if added_by is not None:
-            state["added_by"] = int(added_by)
-        if lang in TEXTS:
-            state["lang"] = lang
-        state["last_seen_ms"] = now_ms()
-
-
-async def remove_group_from_user(bot_data: dict[str, Any], user_id: int, chat_id: int) -> None:
-    async with BOT_DATA_LOCK:
-        state = get_user_state(bot_data, user_id)
-        groups = state.setdefault("groups", [])
-        kept: list[int] = []
-        for group_id in groups:
-            try:
-                parsed = int(group_id)
-            except (TypeError, ValueError):
-                continue
-            if parsed != int(chat_id):
-                kept.append(parsed)
-        state["groups"] = kept
-
-
 def is_group_chat(chat_type: str | None) -> bool:
     return chat_type in CHAT_TYPES_GROUP
 
@@ -511,27 +463,27 @@ async def safe_send_message(
     *,
     reply_markup: InlineKeyboardMarkup | None = None,
     disable_web_page_preview: bool = True,
-) -> int | None:
+) -> bool:
     try:
-        sent = await context.bot.send_message(
+        await context.bot.send_message(
             chat_id=chat_id,
             text=text,
             parse_mode=ParseMode.HTML,
             reply_markup=reply_markup,
             disable_web_page_preview=disable_web_page_preview,
         )
-        return int(sent.message_id)
+        return True
     except Forbidden:
-        return None
+        return False
     except BadRequest as exc:
         logger.warning("send_message BadRequest chat_id=%s: %s", chat_id, exc)
-        return None
+        return False
     except TimedOut as exc:
         logger.warning("send_message timed out chat_id=%s: %s", chat_id, exc)
-        return None
+        return False
     except TelegramError as exc:
         logger.warning("send_message failed chat_id=%s: %s", chat_id, exc)
-        return None
+        return False
 
 
 async def safe_reply(update: Update, text: str, *, reply_markup: InlineKeyboardMarkup | None = None) -> None:
@@ -557,30 +509,6 @@ async def safe_edit_query(query: Any, text: str, *, reply_markup: InlineKeyboard
             logger.warning("edit_message_text failed: %s", exc)
     except TelegramError as exc:
         logger.warning("edit_message_text failed: %s", exc)
-
-
-async def safe_edit_message(
-    context: ContextTypes.DEFAULT_TYPE,
-    chat_id: int,
-    message_id: int,
-    text: str,
-    *,
-    reply_markup: InlineKeyboardMarkup | None = None,
-) -> None:
-    try:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup,
-            disable_web_page_preview=True,
-        )
-    except BadRequest as exc:
-        if "message is not modified" not in str(exc).casefold():
-            logger.warning("edit_message_text failed chat_id=%s message_id=%s: %s", chat_id, message_id, exc)
-    except TelegramError as exc:
-        logger.warning("edit_message_text failed chat_id=%s message_id=%s: %s", chat_id, message_id, exc)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -648,10 +576,6 @@ def has_delete_permission(perms: BotPerms) -> bool:
     return perms.status in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"} and perms.can_delete_messages
 
 
-def has_ban_permission(perms: BotPerms) -> bool:
-    return perms.status in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"} and perms.can_restrict_members
-
-
 # ─────────────────────────────────────────────────────────────
 # KEYBOARDS
 # ─────────────────────────────────────────────────────────────
@@ -692,71 +616,11 @@ def action_keyboard(bot_data: dict[str, Any], admin_id: int, ikey: str) -> Inlin
 # ─────────────────────────────────────────────────────────────
 
 
-def format_admin_alert(
-    bot_data: dict[str, Any],
-    admin_id: int,
-    *,
-    sender_name: str,
-    sender_id: int,
-    file_name: str,
-    group_name: str,
-    group_id: int,
-    time_str: str,
-) -> str:
-    lang = get_lang(bot_data, admin_id)
-    return TEXTS[lang]["admin_alert"].format(
-        sender_name=h(sender_name),
-        sender_id=int(sender_id),
-        file_name=h(file_name),
-        group_name=h(group_name),
-        group_id=int(group_id),
-        time=h(time_str),
-    )
-
-
-def action_result_text(bot_data: dict[str, Any], admin_id: int, incident: dict[str, Any]) -> str:
-    action = str(incident.get("action") or "")
-    sender_name = h(incident.get("sender_name") or "Unknown")
-    if action == "ban":
-        return tr(bot_data, admin_id, "action_ban_ok", name=sender_name)
-    if action == "warn":
-        return tr(bot_data, admin_id, "action_warn_ok", name=sender_name)
-    if action == "ignore":
-        return tr(bot_data, admin_id, "action_ignore_ok")
-    return ""
-
-
-def handled_footer(bot_data: dict[str, Any], admin_id: int, incident: dict[str, Any]) -> str:
-    if not incident.get("done"):
-        return ""
-    result = action_result_text(bot_data, admin_id, incident)
-    handled_by = incident.get("handled_by")
-    handled_by_name = str(incident.get("handled_by_name") or handled_by or "Admin")
-    admin_display = user_link(int(handled_by), handled_by_name) if handled_by else h(handled_by_name)
-    return f"\n\n{result}\n{tr(bot_data, admin_id, 'handled_by', admin=admin_display)}"
-
-
-def format_incident_alert_for_admin(bot_data: dict[str, Any], admin_id: int, incident: dict[str, Any]) -> str:
-    base = format_admin_alert(
-        bot_data,
-        admin_id,
-        sender_name=str(incident.get("sender_name") or "Unknown"),
-        sender_id=int(incident.get("sender_id") or 0),
-        file_name=str(incident.get("file_name") or "Unknown"),
-        group_name=str(incident.get("group_name") or incident.get("chat_id") or "Unknown"),
-        group_id=int(incident.get("chat_id") or 0),
-        time_str=now_utc_str(),
-    )
-    return base + handled_footer(bot_data, admin_id, incident)
-
-
-async def send_single_alert(context: ContextTypes.DEFAULT_TYPE, admin_id: int, msg: str, ikey: str, sem: asyncio.Semaphore) -> tuple[int, int] | None:
+async def send_single_alert(context: ContextTypes.DEFAULT_TYPE, admin_id: int, msg: str, ikey: str, sem: asyncio.Semaphore) -> None:
     async with sem:
-        message_id = await safe_send_message(context, admin_id, msg, reply_markup=action_keyboard(context.bot_data, admin_id, ikey))
-        if message_id is None:
+        ok = await safe_send_message(context, admin_id, msg, reply_markup=action_keyboard(context.bot_data, admin_id, ikey))
+        if not ok:
             logger.info("Admin alert skipped/failed for admin_id=%s. They may need to /start the bot.", admin_id)
-            return None
-        return admin_id, message_id
 
 
 async def notify_admins(
@@ -773,67 +637,29 @@ async def notify_admins(
 
     sender_id = sender.id if sender else 0
     sender_name = sender.full_name if sender else "Unknown"
+    safe_sender_name = h(sender_name)
+    safe_group_name = h(group_name)
+    safe_file_name = h(file_name)
     time_str = now_utc_str()
 
     sem = asyncio.Semaphore(20)
     tasks = []
     for admin_id in admin_ids:
-        msg = format_admin_alert(
-            context.bot_data,
-            admin_id,
-            sender_name=sender_name,
+        lang = get_lang(context.bot_data, admin_id)
+        msg = TEXTS[lang]["admin_alert"].format(
+            sender_name=safe_sender_name,
             sender_id=sender_id,
-            file_name=file_name,
-            group_name=group_name,
+            file_name=safe_file_name,
+            group_name=safe_group_name,
             group_id=chat_id,
-            time_str=time_str,
+            time=time_str,
         )
         tasks.append(send_single_alert(context, admin_id, msg, ikey, sem))
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    delivered: dict[str, int] = {}
     for result in results:
         if isinstance(result, Exception):
             logger.warning("Admin alert task failed: %s", result)
-        elif result:
-            admin_id, message_id = result
-            delivered[str(admin_id)] = int(message_id)
-
-    if delivered:
-        async with BOT_DATA_LOCK:
-            incident = context.bot_data.setdefault("incidents", {}).get(ikey)
-            if isinstance(incident, dict):
-                incident.setdefault("alert_messages", {}).update(delivered)
-                incident["alerted_admins"] = list(admin_ids)
-                incident["alert_delivered_count"] = len(delivered)
-
-
-async def sync_handled_alert_messages(
-    context: ContextTypes.DEFAULT_TYPE,
-    incident: dict[str, Any],
-    *,
-    exclude_admin_id: int | None = None,
-    exclude_message_id: int | None = None,
-) -> None:
-    messages = incident.get("alert_messages") or {}
-    if not isinstance(messages, dict):
-        return
-
-    sem = asyncio.Semaphore(10)
-
-    async def edit_one(admin_id_raw: str, message_id_raw: Any) -> None:
-        try:
-            admin_id = int(admin_id_raw)
-            message_id = int(message_id_raw)
-        except (TypeError, ValueError):
-            return
-        if exclude_admin_id == admin_id and exclude_message_id == message_id:
-            return
-        text = format_incident_alert_for_admin(context.bot_data, admin_id, incident)
-        async with sem:
-            await safe_edit_message(context, admin_id, message_id, text)
-
-    await asyncio.gather(*(edit_one(admin_id, message_id) for admin_id, message_id in messages.items()), return_exceptions=True)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -951,11 +777,6 @@ async def check_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             if not perms.can_delete_messages:
                 return f"⚠️ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'no_delete_perm')}"
             return f"✅ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'setup_ok', group=safe_title)}"
-        except (Forbidden, BadRequest) as exc:
-            logger.warning("Permission check failed chat_id=%s and group was removed from saved list: %s", chat_id, exc)
-            await remove_group_from_user(context.bot_data, user_id, chat_id)
-            await invalidate_chat_caches(chat_id)
-            return None
         except TelegramError as exc:
             logger.warning("Permission check failed chat_id=%s: %s", chat_id, exc)
             return None
@@ -1006,17 +827,13 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         chat_id = int(incident["chat_id"])
-        admin_ids = await get_chat_admin_ids_cached(context, chat_id, force=True)
+        admin_ids = await get_chat_admin_ids_cached(context, chat_id)
         if admin_id not in admin_ids:
             await safe_edit_query(query, tr(context.bot_data, admin_id, "action_not_admin"))
             return
 
-        if query.message:
-            incident.setdefault("alert_messages", {})[str(admin_id)] = int(query.message.message_id)
-
         incident["done"] = True
         incident["handled_by"] = admin_id
-        incident["handled_by_name"] = query.from_user.full_name
         incident["handled_at_ms"] = now_ms()
         incident["action"] = action
 
@@ -1028,15 +845,11 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         if action == "ban":
             try:
-                bot_perms = await get_bot_member_cached(context, chat_id, force=True)
-                if not has_ban_permission(bot_perms):
-                    raise TelegramError("Bot does not have Ban Users permission")
                 await context.bot.ban_chat_member(chat_id, sender_id)
                 result_msg = tr(context.bot_data, admin_id, "action_ban_ok", name=sender_name)
             except TelegramError as exc:
                 incident["done"] = False
                 incident.pop("handled_by", None)
-                incident.pop("handled_by_name", None)
                 incident.pop("handled_at_ms", None)
                 incident.pop("action", None)
                 logger.warning("Ban failed chat_id=%s sender_id=%s: %s", chat_id, sender_id, exc)
@@ -1051,7 +864,6 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             except TelegramError as exc:
                 incident["done"] = False
                 incident.pop("handled_by", None)
-                incident.pop("handled_by_name", None)
                 incident.pop("handled_at_ms", None)
                 incident.pop("action", None)
                 logger.warning("Warn failed chat_id=%s sender_id=%s: %s", chat_id, sender_id, exc)
@@ -1059,19 +871,16 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         else:
             result_msg = tr(context.bot_data, admin_id, "action_ignore_ok")
 
-        final_text = format_incident_alert_for_admin(context.bot_data, admin_id, incident)
-        if not incident.get("done") and result_msg:
-            final_text += f"\n\n{result_msg}"
-        await safe_edit_query(query, final_text)
-
-        if incident.get("done"):
-            clicked_message_id = int(query.message.message_id) if query.message else None
-            await sync_handled_alert_messages(
-                context,
-                incident,
-                exclude_admin_id=admin_id,
-                exclude_message_id=clicked_message_id,
-            )
+        lang = get_lang(context.bot_data, admin_id)
+        new_text = TEXTS[lang]["admin_alert"].format(
+            sender_name=sender_name,
+            sender_id=sender_id,
+            file_name=file_name,
+            group_name=group_name,
+            group_id=chat_id,
+            time=now_utc_str(),
+        )
+        await safe_edit_query(query, new_text + f"\n\n{result_msg}")
 
 
 async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1101,7 +910,6 @@ async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TY
 
     await remember_user(context.bot_data, adder.id)
     await add_group(context.bot_data, adder.id, chat.id)
-    await remember_group(context.bot_data, chat.id, added_by=adder.id, lang=get_lang(context.bot_data, adder.id))
 
     safe_title = h(chat.title or "Group")
     can_delete = bool(getattr(new_member, "can_delete_messages", False))
@@ -1150,12 +958,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except TelegramError as exc:
         logger.error("Could not delete blocked file chat_id=%s message_id=%s: %s", chat.id, message.message_id, exc)
         await invalidate_chat_caches(chat.id)
-        await safe_send_message(context, chat.id, tr_group(context.bot_data, chat.id, "delete_failed"))
         return
 
-    await remember_group(context.bot_data, chat.id, lang=get_group_lang(context.bot_data, chat.id))
     user_mention = user_link(sender_id, sender_name_raw)
-    group_notice = tr_group(context.bot_data, chat.id, "exe_removed_group", user=user_mention, ext=h(reason))
+    group_notice_lang_user = sender_id if sender_id else None
+    group_notice = tr(context.bot_data, group_notice_lang_user, "exe_removed_group", user=user_mention, ext=h(reason))
     await safe_send_message(context, chat.id, group_notice)
 
     ikey = incident_key(chat.id, sender_id, message.message_id)
@@ -1170,7 +977,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "file_name": file_name,
             "reason": reason,
             "message_id": message.message_id,
-            "alert_messages": {},
         }
 
     await notify_admins(context, chat.id, chat.title or str(chat.id), sender, file_name, ikey)
