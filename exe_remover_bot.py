@@ -1,525 +1,1145 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Telegram Bot - EXE File Remover (Render Production Ready)
-• Deletes .exe files from groups
-• Notifies every admin via DM with action buttons: Ban | Warn | Ignore
-• Supports English 🇬🇧 and Khmer 🇰🇭
-• Features: Webhook support for Render, Auto Self-Ping Keep-Awake, Persistent state
+
+What it does
+------------
+• Deletes blocked executable files from groups/supergroups.
+• Alerts every human admin by DM with inline actions: Ban | Warn | Ignore.
+• Supports English and Khmer.
+• Supports Render webhooks and local polling.
+• Persists user language/group state and incident state across restarts.
+
+Recommended install
+-------------------
+pip install "python-telegram-bot[webhooks,job-queue]" python-dotenv httpx
+
+Important environment variables
+-------------------------------
+BOT_TOKEN                         Required. Telegram bot token.
+BOT_MODE                          Optional: AUTO, WEBHOOK, or POLLING. Default: AUTO.
+PORT                              Optional. Default: 8080.
+RENDER_EXTERNAL_URL               Optional. Render provides this automatically.
+WEBHOOK_URL                       Optional. Override public base URL for webhook mode.
+WEBHOOK_SECRET_TOKEN              Optional. Safe webhook path token. Auto-generated if missing.
+PERSISTENCE_FILE                  Optional. Default: exe_bot_data.pickle.
+BLOCKED_EXTENSIONS                Optional. Comma list. Default: .exe
+BLOCKED_MIME_TYPES                Optional. Comma list of MIME types.
+MAX_CONCURRENT_UPDATES            Optional. Default: 8.
+TELEGRAM_CONNECTION_POOL_SIZE     Optional. Default: 32.
+TELEGRAM_POOL_TIMEOUT             Optional. Default: 10.0.
+ADMIN_CACHE_TTL_SECONDS           Optional. Default: 180.
+BOT_MEMBER_CACHE_TTL_SECONDS      Optional. Default: 60.
+INCIDENT_TTL_SECONDS              Optional. Default: 86400.
+KEEP_AWAKE_ENABLED                Optional: true/false. Default: true on Render webhook mode.
+KEEP_AWAKE_INTERVAL_SECONDS       Optional. Default: 600.
+DROP_PENDING_UPDATES              Optional: true/false. Default: false.
 """
 
-import os
-import logging
-import asyncio
-from datetime import datetime, timezone
+from __future__ import annotations
 
-from dotenv import load_dotenv
+import asyncio
+import logging
+import os
+import re
+import secrets
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from html import escape as html_escape
+from typing import Any, Generic, Iterable, TypeVar
+
 import httpx
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from dotenv import load_dotenv
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ChatMemberStatus, ChatType, ParseMode
+from telegram.error import BadRequest, Forbidden, TelegramError, TimedOut
 from telegram.ext import (
     Application,
-    CommandHandler,
-    MessageHandler,
+    ApplicationBuilder,
     CallbackQueryHandler,
     ChatMemberHandler,
-    filters,
+    CommandHandler,
     ContextTypes,
+    MessageHandler,
     PicklePersistence,
+    filters,
 )
-from telegram.constants import ChatMemberStatus, ParseMode
-from telegram.error import BadRequest, Forbidden
 
-# ─────────────────────────────────────────────
-# CONFIG & INITIALIZATION
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# CONFIGURATION
+# ─────────────────────────────────────────────────────────────
+
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+
+def _env_str(name: str, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
+
+def _env_int(name: str, default: int, *, min_value: int | None = None, max_value: int | None = None) -> int:
+    raw = _env_str(name, str(default))
+    try:
+        value = int(raw)
+    except ValueError:
+        value = default
+    if min_value is not None:
+        value = max(min_value, value)
+    if max_value is not None:
+        value = min(max_value, value)
+    return value
+
+
+def _env_float(name: str, default: float, *, min_value: float | None = None) -> float:
+    raw = _env_str(name, str(default))
+    try:
+        value = float(raw)
+    except ValueError:
+        value = default
+    if min_value is not None:
+        value = max(min_value, value)
+    return value
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = _env_str(name, "")
+    if not raw:
+        return default
+    return raw.casefold() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_csv(name: str, default: Iterable[str]) -> tuple[str, ...]:
+    raw = _env_str(name, "")
+    items = [x.strip() for x in raw.split(",") if x.strip()] if raw else list(default)
+    return tuple(dict.fromkeys(items))
+
+
+BOT_TOKEN = _env_str("BOT_TOKEN")
 if not BOT_TOKEN:
-    raise ValueError("CRITICAL: BOT_TOKEN is missing. Please set it in your environment variables.")
+    raise RuntimeError("CRITICAL: BOT_TOKEN is missing. Set BOT_TOKEN in the environment.")
+
+BOT_MODE = _env_str("BOT_MODE", "AUTO").upper()
+if BOT_MODE not in {"AUTO", "WEBHOOK", "POLLING"}:
+    raise RuntimeError("BOT_MODE must be AUTO, WEBHOOK, or POLLING.")
+
+PORT = _env_int("PORT", 8080, min_value=1, max_value=65535)
+RENDER_EXTERNAL_URL = _env_str("RENDER_EXTERNAL_URL").rstrip("/")
+WEBHOOK_BASE_URL = (_env_str("WEBHOOK_URL") or RENDER_EXTERNAL_URL).rstrip("/")
+WEBHOOK_SECRET_TOKEN = _env_str("WEBHOOK_SECRET_TOKEN") or secrets.token_urlsafe(24)
+WEBHOOK_URL_PATH = _env_str("WEBHOOK_URL_PATH") or f"tg-webhook/{WEBHOOK_SECRET_TOKEN}"
+PERSISTENCE_FILE = _env_str("PERSISTENCE_FILE", "exe_bot_data.pickle")
+
+MAX_CONCURRENT_UPDATES = _env_int("MAX_CONCURRENT_UPDATES", 8, min_value=1, max_value=64)
+TELEGRAM_CONNECTION_POOL_SIZE = _env_int("TELEGRAM_CONNECTION_POOL_SIZE", 32, min_value=8, max_value=256)
+TELEGRAM_POOL_TIMEOUT = _env_float("TELEGRAM_POOL_TIMEOUT", 10.0, min_value=1.0)
+ADMIN_CACHE_TTL_SECONDS = _env_int("ADMIN_CACHE_TTL_SECONDS", 180, min_value=5)
+BOT_MEMBER_CACHE_TTL_SECONDS = _env_int("BOT_MEMBER_CACHE_TTL_SECONDS", 60, min_value=5)
+INCIDENT_TTL_SECONDS = _env_int("INCIDENT_TTL_SECONDS", 86400, min_value=60)
+KEEP_AWAKE_INTERVAL_SECONDS = _env_int("KEEP_AWAKE_INTERVAL_SECONDS", 600, min_value=60)
+DROP_PENDING_UPDATES = _env_bool("DROP_PENDING_UPDATES", False)
+
+# Keep the original behavior by default: only .exe is blocked. You can extend by env.
+BLOCKED_EXTENSIONS = tuple(
+    ext.casefold() if ext.startswith(".") else f".{ext.casefold()}"
+    for ext in _env_csv("BLOCKED_EXTENSIONS", [".exe"])
+)
+BLOCKED_MIME_TYPES = tuple(
+    mt.casefold()
+    for mt in _env_csv(
+        "BLOCKED_MIME_TYPES",
+        [
+            "application/x-msdownload",
+            "application/vnd.microsoft.portable-executable",
+            "application/x-dosexec",
+        ],
+    )
+)
+
+ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
+CHAT_TYPES_GROUP = {ChatType.GROUP, ChatType.SUPERGROUP, "group", "supergroup"}
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    level=logging.INFO,
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("exe_remover_bot")
 
-# Render Environment Variables (Injected automatically by Render)
-PORT = int(os.getenv("PORT", "8080"))
-RENDER_URL = os.getenv("RENDER_EXTERNAL_URL") 
+# ─────────────────────────────────────────────────────────────
+# PROCESS-LOCAL STATE
+# Keep asyncio locks/caches out of bot_data because PicklePersistence deep-copies
+# bot_data and only copyable/pickleable objects should live there.
+# ─────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────
-# HUMANIZED TRANSLATIONS
-# ─────────────────────────────────────────────
-TEXTS = {
+T = TypeVar("T")
+
+BOT_DATA_LOCK = asyncio.Lock()
+ADMIN_CACHE_LOCK = asyncio.Lock()
+BOT_MEMBER_CACHE_LOCK = asyncio.Lock()
+INCIDENT_LOCKS_LOCK = asyncio.Lock()
+
+BOT_ID: int | None = None
+BOT_USERNAME: str | None = None
+
+# chat_id -> cache item
+ADMIN_IDS_CACHE: dict[int, "CacheItem[list[int]]"] = {}
+BOT_MEMBER_CACHE: dict[int, "CacheItem[BotPerms]"] = {}
+INCIDENT_LOCKS: dict[str, asyncio.Lock] = {}
+KEEP_AWAKE_CLIENT: httpx.AsyncClient | None = None
+
+
+@dataclass(slots=True)
+class CacheItem(Generic[T]):
+    value: T
+    expires_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class BotPerms:
+    status: str
+    can_delete_messages: bool
+    can_restrict_members: bool
+
+
+# ─────────────────────────────────────────────────────────────
+# TRANSLATIONS - HTML parse mode, not Markdown
+# ─────────────────────────────────────────────────────────────
+
+TEXTS: dict[str, dict[str, str]] = {
     "en": {
+        "select_lang": "🌐 Please choose your preferred language / សូមជ្រើសរើសភាសារបស់អ្នក៖",
+        "lang_set": "✅ Got it! I’ll speak to you in <b>English</b> from now on.",
         "welcome": (
-            "👋 *Hey there! I'm your EXE Remover Bot.*\n\n"
-            "🛡️ I keep your groups safe by instantly wiping out dangerous `.exe` files.\n"
-            "📢 Whenever someone drops one, I'll slide into your DMs with quick options to *Ban*, *Warn*, or *Ignore* them.\n\n"
-            "➡️ Ready to secure your chat? Just add me to your group and make sure I have the *Delete Messages* permission!"
+            "👋 <b>Hey there! I’m your EXE Remover Bot.</b>\n\n"
+            "🛡️ I keep your groups safe by instantly removing dangerous <code>.exe</code> files.\n"
+            "📢 When someone sends one, I’ll DM the admin team with quick options to <b>Ban</b>, <b>Warn</b>, or <b>Ignore</b>.\n\n"
+            "➡️ Add me to your group and give me <b>Delete Messages</b> permission."
         ),
-        "select_lang":   "🌐 Please choose your preferred language / សូមជ្រើសរើសភាសារបស់អ្នក៖",
-        "lang_set":      "✅ Got it! I'll speak to you in *English* from now on.",
-        "add_btn":       "➕ Add Me to a Group",
-        "check_btn":     "🔄 Check My Permissions",
-        "no_group":      "⚠️ I haven't detected your group yet. Please add me to a group first, then click *Check My Permissions*.",
-        "not_admin":     (
-            "❌ *I don't look like an admin in your group yet.*\n\n"
-            "Go to Group Settings → Administrators → Add Member → Select me, and turn on the *Delete Messages* option.\n\n"
-            "Once that's done, click *Check My Permissions* again!"
+        "add_btn": "➕ Add Me to a Group",
+        "check_btn": "🔄 Check My Permissions",
+        "private_start": "Open a private chat with me to choose language and manage settings.",
+        "no_group": "⚠️ I haven’t detected your group yet. Add me to a group first, then click <b>Check My Permissions</b>.",
+        "not_admin": (
+            "❌ <b>I’m not an admin in your group yet.</b>\n\n"
+            "Go to Group Settings → Administrators → Add Member → select me, then enable <b>Delete Messages</b>."
         ),
         "no_delete_perm": (
-            "⚠️ *I'm an admin, but I don't have the right permissions.*\n\n"
-            "Please check my settings and make sure *Delete Messages* is allowed so I can do my job."
+            "⚠️ <b>I’m an admin, but I can’t delete messages yet.</b>\n\n"
+            "Please enable <b>Delete Messages</b> for me."
         ),
         "setup_ok": (
-            "🎉 *Awesome! I'm all set up and ready to go.*\n\n"
-            "I am now actively guarding *{group}*.\n"
-            "If any `.exe` files pop up, I'll delete them immediately and alert the admin team. 🛡️"
+            "🎉 <b>Awesome! I’m ready.</b>\n\n"
+            "I’m now guarding <b>{group}</b>. If a blocked file appears, I’ll delete it and alert the admin team. 🛡️"
         ),
         "exe_removed_group": (
-            "🚫 *Heads up!* {user} just tried to send a `.exe` file, so I went ahead and removed it.\n"
-            "We don't allow executable files here to keep everyone safe."
+            "🚫 <b>Blocked file removed.</b> {user} tried to send <code>{ext}</code> file.\n"
+            "Executable files are not allowed here for everyone’s safety."
         ),
         "admin_alert": (
-            "🚨 *Security Alert: EXE File Caught & Deleted!*\n"
+            "🚨 <b>Security Alert: File Caught &amp; Deleted</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "👤 *Sender:* {sender_name} (`{sender_id}`)\n"
-            "📄 *File Name:* `{file_name}`\n"
-            "💬 *Group:* {group_name} (`{group_id}`)\n"
-            "📅 *Time:* {time} UTC\n"
+            "👤 <b>Sender:</b> {sender_name} <code>{sender_id}</code>\n"
+            "📄 <b>File Name:</b> <code>{file_name}</code>\n"
+            "💬 <b>Group:</b> {group_name} <code>{group_id}</code>\n"
+            "📅 <b>Time:</b> {time} UTC\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "What action would you like to take against this user?"
+            "What action would you like to take?"
         ),
-        "btn_ban":    "🔨 Ban User",
-        "btn_warn":   "⚠️ Warn User",
+        "btn_ban": "🔨 Ban User",
+        "btn_warn": "⚠️ Warn User",
         "btn_ignore": "✅ Ignore",
-        "action_ban_ok":    "🔨 *Action Taken:* {name} has been banned and kicked from the group.",
-        "action_ban_fail":  "❌ *Oops!* I couldn't ban them. Make sure I have 'Ban Users' permission turned on.",
-        "action_warn_ok":   "⚠️ *Action Taken:* I've dropped a formal warning for {name} directly in the chat.",
-        "action_ignore_ok": "✅ *Action Taken:* This incident has been ignored. No further changes made.",
-        "action_done":      "_(Another admin has already handled this incident)_",
+        "action_ban_ok": "🔨 <b>Action taken:</b> {name} has been banned and kicked from the group.",
+        "action_ban_fail": "❌ I couldn’t ban them. Make sure I have <b>Ban Users</b> permission.",
+        "action_warn_ok": "⚠️ <b>Action taken:</b> I sent a formal warning for {name} in the group.",
+        "action_warn_fail": "❌ I couldn’t send the warning in the group.",
+        "action_ignore_ok": "✅ <b>Action taken:</b> This incident has been ignored.",
+        "action_done": "<i>Another admin has already handled this incident.</i>",
+        "action_expired": "<i>This incident is expired or no longer exists.</i>",
+        "action_not_admin": "❌ You are no longer an admin in that group, so this action was rejected.",
         "warn_in_group": (
-            "⚠️ *Official Warning* — {user}\n"
-            "Sending `.exe` files is strictly prohibited here. "
-            "Please refrain from doing it again, or you may find yourself permanently banned from the community."
+            "⚠️ <b>Official Warning</b> — {user}\n"
+            "Sending executable files is strictly prohibited here. Please do not send them again."
         ),
         "help": (
-            "💡 *EXE Remover Bot — Quick Guide*\n\n"
-            "/start  — Choose language and change settings\n"
-            "/help   — Bring up this help guide\n"
-            "/status — Check if I'm running smoothly (Send inside a group)\n"
-            "/admins — See which admins are receiving alerts (Send inside a group)"
+            "💡 <b>EXE Remover Bot — Quick Guide</b>\n\n"
+            "/start — Choose language and settings\n"
+            "/help — Show this help\n"
+            "/status — Check bot permissions inside a group\n"
+            "/admins — See group admins and alert readiness"
         ),
-        "status_ok":     "✅ Everything is running perfectly! I am actively watching for `.exe` files and alerting admins.",
-        "status_no":     "❌ I am currently inactive because I'm not an admin. Please grant me *Delete Messages* permissions.",
-        "admins_header": "👮 *Here are the admins signed up for alerts in this chat:*\n",
-        "admins_note":   "\n_Note: Only admins who have private messaged /started the bot will get DM alerts._",
+        "status_ok": "✅ Everything is running correctly. I can delete blocked files and alert admins.",
+        "status_no": "❌ I’m inactive here because I’m not admin or I don’t have <b>Delete Messages</b> permission.",
+        "status_error": "❌ Permission check failed: <code>{error}</code>",
+        "admins_header": "👮 <b>Group admin alert status</b>\n",
+        "admins_enabled": "✅ alerts enabled",
+        "admins_need_start": "⚠️ needs /start in private chat",
+        "admins_note": "\n<i>Only admins who have privately started the bot can receive DM alerts.</i>",
+        "group_only": "Send this command inside a group.",
+        "unknown_error": "Something went wrong. Please try again.",
     },
     "km": {
+        "select_lang": "🌐 Please choose your preferred language / សូមជ្រើសរើសភាសារបស់អ្នក៖",
+        "lang_set": "✅ បានកំណត់យក <b>ភាសាខ្មែរ</b> រួចរាល់ហើយបាទ។",
         "welcome": (
-            "👋 *សួស្ដីបាទ! ខ្ញុំជា EXE Remover Bot។*\n\n"
-            "🛡️ ខ្ញុំមានតួនាទីជួយការពារក្រុមពិភាក្សារបស់អ្នក ដោយលុបឯកសារប្រភេទ `.exe` ចោលភ្លាមៗដោយស្វ័យប្រវត្តិ។\n"
-            "📢 នៅពេលមានសមាជិកផ្ញើវាចូល ខ្ញុំនឹងផ្ញើសារមកកាន់ DM របស់ Admin ភ្លាមៗជាមួយជម្រើស *ហាមឃាត់*, *ព្រមាន* ឬ *មិនអើពើ*។\n\n"
-            "➡️ ដើម្បីចាប់ផ្ដើម សូមទាញខ្ញុំចូលក្នុងក្រុមរបស់អ្នក រួចផ្ដល់សិទ្ធិជា *Admin* ដោយបើកសិទ្ធិ *លុបសារ (Delete Messages)* ផងបាទ!"
+            "👋 <b>សួស្ដីបាទ! ខ្ញុំជា EXE Remover Bot។</b>\n\n"
+            "🛡️ ខ្ញុំជួយការពារក្រុម ដោយលុបឯកសារ <code>.exe</code> ចោលភ្លាមៗ។\n"
+            "📢 ពេលមានអ្នកផ្ញើឯកសារប្រភេទនេះ ខ្ញុំនឹងផ្ញើ DM ទៅ Admin ជាមួយជម្រើស <b>Ban</b>, <b>Warn</b>, ឬ <b>Ignore</b>។\n\n"
+            "➡️ សូមបន្ថែមខ្ញុំទៅក្រុម ហើយផ្តល់សិទ្ធិ <b>Delete Messages</b>។"
         ),
-        "select_lang":   "🌐 Please choose your preferred language / សូមជ្រើសរើសភាសារបស់អ្នក៖",
-        "lang_set":      "✅ បានកំណត់យក *ភាសាខ្មែរ* ជាផ្លូវការរួចរាល់ហើយបាទ។",
-        "add_btn":       "➕ បន្ថែមខ្ញុំទៅក្នុងក្រុម",
-        "check_btn":     "🔄 ពិនិត្យមើលការអនុញ្ញាតសិទ្ធិ",
-        "no_group":      "⚠️ ខ្ញុំមិនទាន់ឃើញមានក្រុមណាមួយនៅឡើយទេ។ សូមបន្ថែមខ្ញុំទៅក្នុងក្រុមជាមុនសិន រួចចុចប៊ូតុង *ពិនិត្យមើលការអនុញ្ញាតសិទ្ធិ* ម្តងទៀត។",
-        "not_admin":     (
-            "❌ *ខ្ញុំហាក់ដូចជាមិនទាន់ក្លាយជា Admin នៅក្នុងក្រុមរបស់អ្នកនៅឡើយទេ។*\n\n"
-            "សូមចូលទៅកាន់ ការកំណត់ក្រុម → អ្នកគ្រប់គ្រង (Administrators) → បន្ថែមសមាជិក → ជ្រើសរើសរូបខ្ញុំ រួចបើកសិទ្ធិ *លុបសារ (Delete Messages)*។\n\n"
-            "បន្ទាប់ពីកំណត់រួចរាល់ហើយ សូមចុចប៊ូតុង *ពិនិត្យមើលការអនុញ្ញាតសិទ្ធិ* ឡើងវិញបាទ។"
+        "add_btn": "➕ បន្ថែមខ្ញុំទៅក្នុងក្រុម",
+        "check_btn": "🔄 ពិនិត្យសិទ្ធិ",
+        "private_start": "សូមបើកឆាតឯកជនជាមួយខ្ញុំ ដើម្បីជ្រើសរើសភាសា និងកំណត់ការប្រើប្រាស់។",
+        "no_group": "⚠️ ខ្ញុំមិនទាន់ឃើញក្រុមណាមួយទេ។ សូមបន្ថែមខ្ញុំទៅក្រុមជាមុនសិន រួចចុច <b>ពិនិត្យសិទ្ធិ</b>។",
+        "not_admin": (
+            "❌ <b>ខ្ញុំមិនទាន់ជា Admin ក្នុងក្រុមរបស់អ្នកទេ។</b>\n\n"
+            "សូមចូល Group Settings → Administrators → Add Member → ជ្រើសខ្ញុំ ហើយបើកសិទ្ធិ <b>Delete Messages</b>។"
         ),
         "no_delete_perm": (
-            "⚠️ *ខ្ញុំជា Admin មែន ប៉ុន្តែមិនទាន់មានសិទ្ធិគ្រប់គ្រាន់ឡើយ។*\n\n"
-            "សូមពិនិត្យមើលការកំណត់ Admin របស់ខ្ញុំឡើងវិញ រួចប្រាកដថាបានបើកសិទ្ធិ *លុបសារ (Delete Messages)* ដើម្បីឱ្យខ្ញុំអាចបំពេញភារកិច្ចបាន។"
+            "⚠️ <b>ខ្ញុំជា Admin ប៉ុន្តែមិនទាន់មានសិទ្ធិលុបសារ។</b>\n\n"
+            "សូមបើកសិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំផងបាទ។"
         ),
         "setup_ok": (
-            "🎉 *រួចរាល់ហើយបាទ! ខ្ញុំបានរៀបចំខ្លួនរួចជាស្រេចហើយ។*\n\n"
-            "ឥឡូវនេះខ្ញុំកំពុងយាមកាមការពារក្រុម *{group}* យ៉ាងយកចិត្តទុកដាក់។\n"
-            "រាល់ពេលមានឯកសារ `.exe` ផ្ញើចូល ខ្ញុំនឹងលុបវាចោលភ្លាម រួចរាយការណ៍ជូនក្រុម Admin ភ្លាមៗបាទ។ 🛡️"
+            "🎉 <b>រួចរាល់ហើយបាទ!</b>\n\n"
+            "ឥឡូវនេះខ្ញុំកំពុងការពារក្រុម <b>{group}</b>។ បើមានឯកសារហាមឃាត់ ខ្ញុំនឹងលុបវា និងរាយការណ៍ជូន Admin។ 🛡️"
         ),
         "exe_removed_group": (
-            "🚫 *សូមប្រុងប្រយ័ត្ន!* {user} ទើបតែបានផ្ញើឯកសារប្រភេទ `.exe` ចូលក្នុងក្រុម ដូច្នេះខ្ញុំបានលុបវាចេញហើយបាទ។\n"
-            "ក្រុមពិភាក្សារបស់យើងមិនអនុញ្ញាតឱ្យផ្ញើឯកសារដែលអាចដំឡើងបាន (Executable files) បែបនេះឡើយ ដើម្បីសុវត្ថិភាពសមាជិកទាំងអស់។"
+            "🚫 <b>បានលុបឯកសារហាមឃាត់។</b> {user} បានផ្ញើឯកសារ <code>{ext}</code>។\n"
+            "ឯកសារដែលអាចដំណើរការបាន មិនត្រូវបានអនុញ្ញាតក្នុងក្រុមនេះទេ។"
         ),
         "admin_alert": (
-            "🚨 *ការជូនដំណឹងសន្តិសុខ៖ រកឃើញ និងលុបឯកសារ EXE ចោលរួចរាល់!*\n"
+            "🚨 <b>ការជូនដំណឹងសន្តិសុខ៖ រកឃើញ និងលុបឯកសារ</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "👤 *អ្នកផ្ញើ:* {sender_name} (`{sender_id}`)\n"
-            "📄 *ឈ្មោះឯកសារ:* `{file_name}`\n"
-            "💬 *ក្រុម:* {group_name} (`{group_id}`)\n"
-            "📅 *ម៉ោង:* {time} UTC\n"
+            "👤 <b>អ្នកផ្ញើ:</b> {sender_name} <code>{sender_id}</code>\n"
+            "📄 <b>ឈ្មោះឯកសារ:</b> <code>{file_name}</code>\n"
+            "💬 <b>ក្រុម:</b> {group_name} <code>{group_id}</code>\n"
+            "📅 <b>ម៉ោង:</b> {time} UTC\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "តើលោក Admin ចង់ចាត់ការលើសមាជិករូបនេះបែបណាដែរ?"
+            "តើ Admin ចង់ចាត់ការបែបណា?"
         ),
-        "btn_ban":    "🔨 ហាមឃាត់ (Ban)",
-        "btn_warn":   "⚠️ ព្រមាន (Warn)",
-        "btn_ignore": "✅ មិនអើពើ (Ignore)",
-        "action_ban_ok":    "🔨 *សកម្មភាព៖* បានហាមឃាត់ និងបណ្ដេញ {name} ចេញពីក្រុមរួចរាល់។",
-        "action_ban_fail":  "❌ *មានបញ្ហា៖* ខ្ញុំមិនអាច Ban គាត់បានឡើយ។ សូមពិនិត្យមើលថាខ្ញុំមានសិទ្ធិ 'Ban Users' ឬអត់។",
-        "action_warn_ok":   "⚠️ *សកម្មភាព៖* ខ្ញុំបានផ្ញើសារព្រមានទៅកាន់ {name} នៅក្នុងក្រុមរួចរាល់ហើយ។",
-        "action_ignore_ok": "✅ *សកម្មភាព៖* ជ្រើសរើសមិនអើពើ។ មិនមានការប្រែប្រួលអ្វីឡើយ។",
-        "action_done":      "_(Admin ផ្សេងបានចាត់ការលើករណីនេះរួចរាល់ហើយ)_",
+        "btn_ban": "🔨 Ban User",
+        "btn_warn": "⚠️ Warn User",
+        "btn_ignore": "✅ Ignore",
+        "action_ban_ok": "🔨 <b>បានចាត់ការ:</b> បាន Ban និងបណ្តេញ {name} ចេញពីក្រុម។",
+        "action_ban_fail": "❌ ខ្ញុំមិនអាច Ban បានទេ។ សូមពិនិត្យសិទ្ធិ <b>Ban Users</b>។",
+        "action_warn_ok": "⚠️ <b>បានចាត់ការ:</b> ខ្ញុំបានផ្ញើសារព្រមានទៅក្រុមសម្រាប់ {name}។",
+        "action_warn_fail": "❌ ខ្ញុំមិនអាចផ្ញើសារព្រមានទៅក្រុមបានទេ។",
+        "action_ignore_ok": "✅ <b>បានចាត់ការ:</b> បានមិនអើពើករណីនេះ។",
+        "action_done": "<i>Admin ផ្សេងបានចាត់ការករណីនេះរួចរាល់ហើយ។</i>",
+        "action_expired": "<i>ករណីនេះផុតកំណត់ ឬមិនមានទៀតទេ។</i>",
+        "action_not_admin": "❌ អ្នកមិនមែនជា Admin ក្នុងក្រុមនោះទៀតទេ ដូច្នេះមិនអាចចាត់ការបាន។",
         "warn_in_group": (
-            "⚠️ *ការព្រមានជាផ្លូវការ* — {user}\n"
-            "ការផ្ញើឯកសារប្រភេទ `.exe` ត្រូវបានហាមឃាត់ដាច់ខាតនៅក្នុងក្រុមនេះ។ "
-            "សូមមេត្តាកុំផ្ញើវាទៀតអី បើមិនដូច្នោះទេអ្នកអាចនឹងត្រូវបណ្ដេញចេញពីសហគមន៍យើងជាអចិន្ត្រៃយ៍។"
+            "⚠️ <b>ការព្រមានជាផ្លូវការ</b> — {user}\n"
+            "ការផ្ញើឯកសារដែលអាចដំណើរការបាន ត្រូវបានហាមឃាត់ក្នុងក្រុមនេះ។ សូមកុំផ្ញើវាម្តងទៀត។"
         ),
         "help": (
-            "💡 *EXE Remover Bot — ណែនាំសង្ខេប*\n\n"
-            "/start  — ជ្រើសរើសភាសា និងផ្លាស់ប្ដូរការកំណត់\n"
-            "/help   — បង្ហាញសៀវភៅណែនាំជំនួយនេះ\n"
-            "/status — ពិនិត្យមើលស្ថានភាពដំណើរការរបស់ Bot (ផ្ញើក្នុងក្រុម)\n"
-            "/admins — មើលឈ្មោះ Admin ដែលទទួលបានការរាយការណ៍ (ផ្ញើក្នុងក្រុម)"
+            "💡 <b>EXE Remover Bot — ជំនួយ</b>\n\n"
+            "/start — ជ្រើសរើសភាសា និងកំណត់\n"
+            "/help — បង្ហាញជំនួយ\n"
+            "/status — ពិនិត្យសិទ្ធិ Bot ក្នុងក្រុម\n"
+            "/admins — មើលស្ថានភាព Admin ទទួល Alert"
         ),
-        "status_ok":     "✅ ដំណើរការជាធម្មតា និងប្រកបដោយសុវត្ថិភាព! ខ្ញុំកំពុងតាមដានឯកសារ `.exe` និងត្រៀមរាយការណ៍ជូន Admin ជានិច្ច។",
-        "status_no":     "❌ ខ្ញុំមិនដំណើរការឡើយ ដោយសារមិនទាន់ជា Admin។ សូមមេត្តាជួយផ្ដល់សិទ្ធិ *លុបសារ (Delete Messages)* ដល់ខ្ញុំផងបាទ។",
-        "admins_header": "👮 *នេះជាបញ្ជីឈ្មោះ Admin ដែលនឹងទទួលបានការរាយការណ៍ក្នុង DM ៖*\n",
-        "admins_note":   "\n_សម្គាល់៖ មានតែ Admin ណាដែលធ្លាប់ចុច /start ជាមួយ Bot ក្នុងឆាតឯកជនប៉ុណ្ណោះ ទើបទទួលបានសាររាយការណ៍។_",
+        "status_ok": "✅ ដំណើរការត្រឹមត្រូវ។ ខ្ញុំអាចលុបឯកសារហាមឃាត់ និងរាយការណ៍ Admin បាន។",
+        "status_no": "❌ ខ្ញុំមិនដំណើរការនៅទីនេះទេ ព្រោះមិនមែនជា Admin ឬមិនមានសិទ្ធិ <b>Delete Messages</b>។",
+        "status_error": "❌ ពិនិត្យសិទ្ធិបរាជ័យ: <code>{error}</code>",
+        "admins_header": "👮 <b>ស្ថានភាព Admin ទទួល Alert</b>\n",
+        "admins_enabled": "✅ បើកទទួល Alert",
+        "admins_need_start": "⚠️ ត្រូវ /start ក្នុងឆាតឯកជន",
+        "admins_note": "\n<i>មានតែ Admin ដែលបាន /start ជាមួយ Bot ក្នុងឆាតឯកជនប៉ុណ្ណោះ ទើបទទួលបាន DM Alert។</i>",
+        "group_only": "សូមផ្ញើ command នេះនៅក្នុងក្រុម។",
+        "unknown_error": "មានបញ្ហាមួយកើតឡើង។ សូមព្យាយាមម្តងទៀត។",
     },
 }
 
-# ─────────────────────────────────────────────
-# HELPERS & ROUTINES
-# ─────────────────────────────────────────────
-def escape_md(text: str) -> str:
-    return str(text).replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
+# ─────────────────────────────────────────────────────────────
+# HTML / STATE HELPERS
+# ─────────────────────────────────────────────────────────────
 
-def get_lang(bot_data: dict, user_id: int) -> str:
-    return bot_data.get("user_state", {}).get(user_id, {}).get("lang", "en")
 
-def t(bot_data: dict, user_id: int, key: str, **kwargs) -> str:
+def h(value: Any) -> str:
+    """Escape text for Telegram HTML parse mode."""
+    return html_escape(str(value), quote=False)
+
+
+def user_link(user_id: int, name: str) -> str:
+    return f'<a href="tg://user?id={int(user_id)}">{h(name)}</a>'
+
+
+def get_user_state(bot_data: dict[str, Any], user_id: int) -> dict[str, Any]:
+    user_state = bot_data.setdefault("user_state", {})
+    return user_state.setdefault(user_id, {"lang": "en", "groups": []})
+
+
+def get_lang(bot_data: dict[str, Any], user_id: int | None) -> str:
+    if not user_id:
+        return "en"
+    lang = bot_data.get("user_state", {}).get(user_id, {}).get("lang", "en")
+    return lang if lang in TEXTS else "en"
+
+
+def tr(bot_data: dict[str, Any], user_id: int | None, key: str, **kwargs: Any) -> str:
     lang = get_lang(bot_data, user_id)
-    text = TEXTS[lang].get(key, TEXTS["en"].get(key, key))
+    text = TEXTS.get(lang, TEXTS["en"]).get(key, TEXTS["en"].get(key, key))
     return text.format(**kwargs) if kwargs else text
 
-def get_groups(bot_data: dict, user_id: int) -> list[int]:
-    return bot_data.get("user_state", {}).get(user_id, {}).get("groups", [])
 
-def add_group(bot_data: dict, user_id: int, chat_id: int):
-    user_state = bot_data.setdefault("user_state", {})
-    user_info = user_state.setdefault(user_id, {"lang": "en", "groups": []})
-    if chat_id not in user_info["groups"]:
-        user_info["groups"].append(chat_id)
+def get_groups(bot_data: dict[str, Any], user_id: int) -> list[int]:
+    groups = bot_data.get("user_state", {}).get(user_id, {}).get("groups", [])
+    return [int(g) for g in groups if isinstance(g, int) or str(g).lstrip("-").isdigit()]
 
-async def get_admin_ids(bot, chat_id: int) -> list[int]:
+
+async def add_group(bot_data: dict[str, Any], user_id: int, chat_id: int) -> None:
+    async with BOT_DATA_LOCK:
+        state = get_user_state(bot_data, user_id)
+        groups = state.setdefault("groups", [])
+        if chat_id not in groups:
+            groups.append(chat_id)
+
+
+async def remember_user(bot_data: dict[str, Any], user_id: int, lang: str | None = None) -> None:
+    async with BOT_DATA_LOCK:
+        state = get_user_state(bot_data, user_id)
+        if lang in TEXTS:
+            state["lang"] = lang
+
+
+def is_group_chat(chat_type: str | None) -> bool:
+    return chat_type in CHAT_TYPES_GROUP
+
+
+def normalize_filename(name: str | None) -> str:
+    if not name:
+        return "Unknown"
+    cleaned = re.sub(r"[\x00-\x1f\x7f]+", "", name).strip()
+    return cleaned or "Unknown"
+
+
+def document_block_reason(document: Any) -> tuple[bool, str]:
+    """Return (blocked, reason_display). Does not download files."""
+    file_name = normalize_filename(getattr(document, "file_name", None))
+    lower_name = file_name.casefold()
+    for ext in BLOCKED_EXTENSIONS:
+        if lower_name.endswith(ext):
+            return True, ext
+
+    mime = (getattr(document, "mime_type", "") or "").casefold()
+    if mime and mime in BLOCKED_MIME_TYPES:
+        return True, mime
+
+    return False, ""
+
+
+def now_utc_str() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def now_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def incident_key(chat_id: int, sender_id: int, message_id: int) -> str:
+    return f"{chat_id}:{sender_id}:{message_id}:{now_ms()}"
+
+
+def incident_timestamp_ms(ikey: str) -> int | None:
     try:
-        admins = await bot.get_chat_administrators(chat_id)
-        return [a.user.id for a in admins if not a.user.is_bot]
-    except Exception as e:
-        logger.warning("Could not fetch admins for %s: %s", chat_id, e)
-        return []
+        return int(ikey.rsplit(":", 1)[-1])
+    except (TypeError, ValueError):
+        return None
 
-def action_keyboard(bot_data: dict, admin_id: int, ikey: str) -> InlineKeyboardMarkup:
-    lang = get_lang(bot_data, admin_id)
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton(TEXTS[lang]["btn_ban"],    callback_data=f"act:ban:{ikey}"),
-        InlineKeyboardButton(TEXTS[lang]["btn_warn"],   callback_data=f"act:warn:{ikey}"),
-        InlineKeyboardButton(TEXTS[lang]["btn_ignore"], callback_data=f"act:ignore:{ikey}"),
-    ]])
 
-async def send_single_alert(context: ContextTypes.DEFAULT_TYPE, admin_id: int, msg: str, ikey: str):
+async def get_incident_lock(ikey: str) -> asyncio.Lock:
+    async with INCIDENT_LOCKS_LOCK:
+        lock = INCIDENT_LOCKS.get(ikey)
+        if lock is None:
+            lock = asyncio.Lock()
+            INCIDENT_LOCKS[ikey] = lock
+        return lock
+
+
+async def safe_send_message(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    text: str,
+    *,
+    reply_markup: InlineKeyboardMarkup | None = None,
+    disable_web_page_preview: bool = True,
+) -> bool:
     try:
         await context.bot.send_message(
-            admin_id, msg,
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=action_keyboard(context.bot_data, admin_id, ikey),
+            chat_id=chat_id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup,
+            disable_web_page_preview=disable_web_page_preview,
         )
-    except (Forbidden, BadRequest):
-        pass
+        return True
+    except Forbidden:
+        return False
+    except BadRequest as exc:
+        logger.warning("send_message BadRequest chat_id=%s: %s", chat_id, exc)
+        return False
+    except TimedOut as exc:
+        logger.warning("send_message timed out chat_id=%s: %s", chat_id, exc)
+        return False
+    except TelegramError as exc:
+        logger.warning("send_message failed chat_id=%s: %s", chat_id, exc)
+        return False
 
-async def notify_admins(context: ContextTypes.DEFAULT_TYPE, chat_id: int, group_name: str, sender, file_name: str, ikey: str):
-    admin_ids = await get_admin_ids(context.bot, chat_id)
-    now_str   = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
-    sender_name = escape_md(sender.full_name) if sender else "Unknown"
-    sender_id   = sender.id if sender else 0
-    safe_group  = escape_md(group_name)
+async def safe_reply(update: Update, text: str, *, reply_markup: InlineKeyboardMarkup | None = None) -> None:
+    message = update.effective_message
+    if not message:
+        return
+    try:
+        await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=reply_markup, disable_web_page_preview=True)
+    except TelegramError as exc:
+        logger.warning("reply failed: %s", exc)
 
+
+async def safe_edit_query(query: Any, text: str, *, reply_markup: InlineKeyboardMarkup | None = None) -> None:
+    try:
+        await query.edit_message_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup,
+            disable_web_page_preview=True,
+        )
+    except BadRequest as exc:
+        if "message is not modified" not in str(exc).casefold():
+            logger.warning("edit_message_text failed: %s", exc)
+    except TelegramError as exc:
+        logger.warning("edit_message_text failed: %s", exc)
+
+
+# ─────────────────────────────────────────────────────────────
+# TELEGRAM API CACHE HELPERS
+# ─────────────────────────────────────────────────────────────
+
+
+async def get_bot_identity(bot: Any) -> tuple[int, str]:
+    global BOT_ID, BOT_USERNAME
+    if BOT_ID is not None and BOT_USERNAME is not None:
+        return BOT_ID, BOT_USERNAME
+    me = await bot.get_me()
+    BOT_ID = int(me.id)
+    BOT_USERNAME = me.username or ""
+    return BOT_ID, BOT_USERNAME
+
+
+async def get_chat_admin_ids_cached(context: ContextTypes.DEFAULT_TYPE, chat_id: int, *, force: bool = False) -> list[int]:
+    now = time.monotonic()
+    async with ADMIN_CACHE_LOCK:
+        cached = ADMIN_IDS_CACHE.get(chat_id)
+        if cached and not force and cached.expires_at > now:
+            return list(cached.value)
+
+    try:
+        admins = await context.bot.get_chat_administrators(chat_id)
+        ids = [a.user.id for a in admins if not a.user.is_bot]
+    except TelegramError as exc:
+        logger.warning("Could not fetch admins for chat_id=%s: %s", chat_id, exc)
+        return []
+
+    async with ADMIN_CACHE_LOCK:
+        ADMIN_IDS_CACHE[chat_id] = CacheItem(ids, time.monotonic() + ADMIN_CACHE_TTL_SECONDS)
+    return list(ids)
+
+
+async def get_bot_member_cached(context: ContextTypes.DEFAULT_TYPE, chat_id: int, *, force: bool = False) -> BotPerms:
+    now = time.monotonic()
+    async with BOT_MEMBER_CACHE_LOCK:
+        cached = BOT_MEMBER_CACHE.get(chat_id)
+        if cached and not force and cached.expires_at > now:
+            return cached.value
+
+    bot_id, _ = await get_bot_identity(context.bot)
+    member = await context.bot.get_chat_member(chat_id, bot_id)
+    perms = BotPerms(
+        status=str(member.status),
+        can_delete_messages=bool(getattr(member, "can_delete_messages", False)),
+        can_restrict_members=bool(getattr(member, "can_restrict_members", False)),
+    )
+
+    async with BOT_MEMBER_CACHE_LOCK:
+        BOT_MEMBER_CACHE[chat_id] = CacheItem(perms, time.monotonic() + BOT_MEMBER_CACHE_TTL_SECONDS)
+    return perms
+
+
+async def invalidate_chat_caches(chat_id: int) -> None:
+    async with ADMIN_CACHE_LOCK:
+        ADMIN_IDS_CACHE.pop(chat_id, None)
+    async with BOT_MEMBER_CACHE_LOCK:
+        BOT_MEMBER_CACHE.pop(chat_id, None)
+
+
+def has_delete_permission(perms: BotPerms) -> bool:
+    return perms.status in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"} and perms.can_delete_messages
+
+
+# ─────────────────────────────────────────────────────────────
+# KEYBOARDS
+# ─────────────────────────────────────────────────────────────
+
+
+def language_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"), InlineKeyboardButton("🇰🇭 ភាសាខ្មែរ", callback_data="lang_km")]]
+    )
+
+
+async def setup_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> InlineKeyboardMarkup:
+    _, username = await get_bot_identity(context.bot)
+    add_url = f"https://t.me/{username}?startgroup=add" if username else "https://t.me/"
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "add_btn"), url=add_url)],
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "check_btn"), callback_data="check_perm")],
+        ]
+    )
+
+
+def action_keyboard(bot_data: dict[str, Any], admin_id: int, ikey: str) -> InlineKeyboardMarkup:
+    lang = get_lang(bot_data, admin_id)
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(TEXTS[lang]["btn_ban"], callback_data=f"act:ban:{ikey}"),
+                InlineKeyboardButton(TEXTS[lang]["btn_warn"], callback_data=f"act:warn:{ikey}"),
+                InlineKeyboardButton(TEXTS[lang]["btn_ignore"], callback_data=f"act:ignore:{ikey}"),
+            ]
+        ]
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# ADMIN ALERTS
+# ─────────────────────────────────────────────────────────────
+
+
+async def send_single_alert(context: ContextTypes.DEFAULT_TYPE, admin_id: int, msg: str, ikey: str, sem: asyncio.Semaphore) -> None:
+    async with sem:
+        ok = await safe_send_message(context, admin_id, msg, reply_markup=action_keyboard(context.bot_data, admin_id, ikey))
+        if not ok:
+            logger.info("Admin alert skipped/failed for admin_id=%s. They may need to /start the bot.", admin_id)
+
+
+async def notify_admins(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    group_name: str,
+    sender: Any,
+    file_name: str,
+    ikey: str,
+) -> None:
+    admin_ids = await get_chat_admin_ids_cached(context, chat_id)
+    if not admin_ids:
+        return
+
+    sender_id = sender.id if sender else 0
+    sender_name = sender.full_name if sender else "Unknown"
+    safe_sender_name = h(sender_name)
+    safe_group_name = h(group_name)
+    safe_file_name = h(file_name)
+    time_str = now_utc_str()
+
+    sem = asyncio.Semaphore(20)
     tasks = []
     for admin_id in admin_ids:
         lang = get_lang(context.bot_data, admin_id)
-        msg  = TEXTS[lang]["admin_alert"].format(
+        msg = TEXTS[lang]["admin_alert"].format(
+            sender_name=safe_sender_name,
+            sender_id=sender_id,
+            file_name=safe_file_name,
+            group_name=safe_group_name,
+            group_id=chat_id,
+            time=time_str,
+        )
+        tasks.append(send_single_alert(context, admin_id, msg, ikey, sem))
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for result in results:
+        if isinstance(result, Exception):
+            logger.warning("Admin alert task failed: %s", result)
+
+
+# ─────────────────────────────────────────────────────────────
+# JOBS
+# ─────────────────────────────────────────────────────────────
+
+
+async def clean_old_incidents(context: ContextTypes.DEFAULT_TYPE) -> None:
+    incidents = context.bot_data.setdefault("incidents", {})
+    if not isinstance(incidents, dict) or not incidents:
+        return
+
+    cutoff = now_ms() - INCIDENT_TTL_SECONDS * 1000
+    stale_keys: list[str] = []
+    for ikey, incident in list(incidents.items()):
+        ts = incident_timestamp_ms(str(ikey))
+        created_at = ts if ts is not None else int(incident.get("created_at_ms", 0) or 0)
+        if created_at and created_at < cutoff:
+            stale_keys.append(str(ikey))
+
+    if stale_keys:
+        async with BOT_DATA_LOCK:
+            for ikey in stale_keys:
+                incidents.pop(ikey, None)
+        async with INCIDENT_LOCKS_LOCK:
+            for ikey in stale_keys:
+                INCIDENT_LOCKS.pop(ikey, None)
+        logger.info("Cleaned %d stale incident(s).", len(stale_keys))
+
+
+async def cleanup_runtime_caches(context: ContextTypes.DEFAULT_TYPE) -> None:
+    now = time.monotonic()
+    async with ADMIN_CACHE_LOCK:
+        for chat_id, item in list(ADMIN_IDS_CACHE.items()):
+            if item.expires_at <= now:
+                ADMIN_IDS_CACHE.pop(chat_id, None)
+    async with BOT_MEMBER_CACHE_LOCK:
+        for chat_id, item in list(BOT_MEMBER_CACHE.items()):
+            if item.expires_at <= now:
+                BOT_MEMBER_CACHE.pop(chat_id, None)
+
+
+async def keep_awake(context: ContextTypes.DEFAULT_TYPE) -> None:
+    global KEEP_AWAKE_CLIENT
+    if not WEBHOOK_BASE_URL:
+        return
+    try:
+        if KEEP_AWAKE_CLIENT is None:
+            KEEP_AWAKE_CLIENT = httpx.AsyncClient(timeout=10.0, follow_redirects=True)
+        response = await KEEP_AWAKE_CLIENT.get(WEBHOOK_BASE_URL)
+        logger.info("Keep-awake ping status=%s", response.status_code)
+    except Exception as exc:
+        logger.warning("Keep-awake ping failed: %s", exc)
+
+
+# ─────────────────────────────────────────────────────────────
+# COMMAND / CALLBACK HANDLERS
+# ─────────────────────────────────────────────────────────────
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    chat = update.effective_chat
+    if not user:
+        return
+    await remember_user(context.bot_data, user.id)
+
+    if chat and is_group_chat(chat.type):
+        _, username = await get_bot_identity(context.bot)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("Open private chat", url=f"https://t.me/{username}" if username else "https://t.me/")]])
+        await safe_reply(update, tr(context.bot_data, user.id, "private_start"), reply_markup=kb)
+        return
+
+    await safe_reply(update, tr(context.bot_data, user.id, "select_lang"), reply_markup=language_keyboard())
+
+
+async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    await query.answer()
+
+    user_id = query.from_user.id
+    data = query.data or ""
+    lang = data.removeprefix("lang_")
+    if lang not in TEXTS:
+        await safe_edit_query(query, TEXTS["en"]["unknown_error"])
+        return
+
+    await remember_user(context.bot_data, user_id, lang)
+    kb = await setup_keyboard(context, user_id)
+    await safe_edit_query(query, tr(context.bot_data, user_id, "lang_set") + "\n\n" + tr(context.bot_data, user_id, "welcome"), reply_markup=kb)
+
+
+async def check_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    await query.answer()
+
+    user_id = query.from_user.id
+    retry_kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user_id, "check_btn"), callback_data="check_perm")]])
+    groups = get_groups(context.bot_data, user_id)
+    if not groups:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "no_group"), reply_markup=retry_kb)
+        return
+
+    async def check_one(chat_id: int) -> str | None:
+        try:
+            chat = await context.bot.get_chat(chat_id)
+            perms = await get_bot_member_cached(context, chat_id, force=True)
+            safe_title = h(chat.title or str(chat_id))
+            if perms.status not in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"}:
+                return f"❌ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'not_admin')}"
+            if not perms.can_delete_messages:
+                return f"⚠️ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'no_delete_perm')}"
+            return f"✅ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'setup_ok', group=safe_title)}"
+        except TelegramError as exc:
+            logger.warning("Permission check failed chat_id=%s: %s", chat_id, exc)
+            return None
+
+    sem = asyncio.Semaphore(5)
+
+    async def guarded(chat_id: int) -> str | None:
+        async with sem:
+            return await check_one(chat_id)
+
+    results = await asyncio.gather(*(guarded(chat_id) for chat_id in groups), return_exceptions=True)
+    lines: list[str] = []
+    for item in results:
+        if isinstance(item, str) and item:
+            lines.append(item)
+        elif isinstance(item, Exception):
+            logger.warning("Permission check task failed: %s", item)
+
+    await safe_edit_query(query, "\n\n".join(lines) if lines else tr(context.bot_data, user_id, "no_group"), reply_markup=retry_kb)
+
+
+async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    await query.answer()
+
+    admin_id = query.from_user.id
+    data = query.data or ""
+    parts = data.split(":", 2)
+    if len(parts) != 3:
+        await safe_edit_query(query, tr(context.bot_data, admin_id, "unknown_error"))
+        return
+    _, action, ikey = parts
+    if action not in {"ban", "warn", "ignore"}:
+        await safe_edit_query(query, tr(context.bot_data, admin_id, "unknown_error"))
+        return
+
+    lock = await get_incident_lock(ikey)
+    async with lock:
+        incidents = context.bot_data.setdefault("incidents", {})
+        incident = incidents.get(ikey)
+        if not incident:
+            await safe_edit_query(query, tr(context.bot_data, admin_id, "action_expired"))
+            return
+        if incident.get("done"):
+            await safe_edit_query(query, tr(context.bot_data, admin_id, "action_done"))
+            return
+
+        chat_id = int(incident["chat_id"])
+        admin_ids = await get_chat_admin_ids_cached(context, chat_id)
+        if admin_id not in admin_ids:
+            await safe_edit_query(query, tr(context.bot_data, admin_id, "action_not_admin"))
+            return
+
+        incident["done"] = True
+        incident["handled_by"] = admin_id
+        incident["handled_at_ms"] = now_ms()
+        incident["action"] = action
+
+        sender_id = int(incident.get("sender_id", 0))
+        sender_name_raw = str(incident.get("sender_name") or "Unknown")
+        sender_name = h(sender_name_raw)
+        file_name = h(incident.get("file_name") or "Unknown")
+        group_name = h(incident.get("group_name") or str(chat_id))
+
+        if action == "ban":
+            try:
+                await context.bot.ban_chat_member(chat_id, sender_id)
+                result_msg = tr(context.bot_data, admin_id, "action_ban_ok", name=sender_name)
+            except TelegramError as exc:
+                incident["done"] = False
+                incident.pop("handled_by", None)
+                incident.pop("handled_at_ms", None)
+                incident.pop("action", None)
+                logger.warning("Ban failed chat_id=%s sender_id=%s: %s", chat_id, sender_id, exc)
+                result_msg = tr(context.bot_data, admin_id, "action_ban_fail")
+
+        elif action == "warn":
+            mention = user_link(sender_id, sender_name_raw)
+            warn_text = TEXTS[get_lang(context.bot_data, admin_id)]["warn_in_group"].format(user=mention)
+            try:
+                await context.bot.send_message(chat_id, warn_text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                result_msg = tr(context.bot_data, admin_id, "action_warn_ok", name=sender_name)
+            except TelegramError as exc:
+                incident["done"] = False
+                incident.pop("handled_by", None)
+                incident.pop("handled_at_ms", None)
+                incident.pop("action", None)
+                logger.warning("Warn failed chat_id=%s sender_id=%s: %s", chat_id, sender_id, exc)
+                result_msg = tr(context.bot_data, admin_id, "action_warn_fail")
+        else:
+            result_msg = tr(context.bot_data, admin_id, "action_ignore_ok")
+
+        lang = get_lang(context.bot_data, admin_id)
+        new_text = TEXTS[lang]["admin_alert"].format(
             sender_name=sender_name,
             sender_id=sender_id,
-            file_name=escape_md(file_name),
-            group_name=safe_group,
+            file_name=file_name,
+            group_name=group_name,
             group_id=chat_id,
-            time=now_str,
+            time=now_utc_str(),
         )
-        tasks.append(send_single_alert(context, admin_id, msg, ikey))
-    
-    if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await safe_edit_query(query, new_text + f"\n\n{result_msg}")
 
-# ─────────────────────────────────────────────
-# JOBS (CLEANUP & KEEP-AWAKE PING)
-# ─────────────────────────────────────────────
-async def clean_old_incidents(context: ContextTypes.DEFAULT_TYPE):
-    incidents = context.bot_data.get("incidents", {})
-    if not incidents:
+
+async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    result = update.my_chat_member
+    if not result:
         return
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    to_delete = [ikey for ikey, d in incidents.items() if len(ikey.split(":")) == 3 and now_ms - int(ikey.split(":")[2]) > 86400000]
-    for ikey in to_delete:
-        del incidents[ikey]
-    if to_delete:
-        logger.info("Cleaned up %d stale incident(s) from memory.", len(to_delete))
 
-async def keep_awake(context: ContextTypes.DEFAULT_TYPE):
-    """Hits the external web port root routing mesh to force Render to stay active."""
-    if RENDER_URL:
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(RENDER_URL, timeout=10.0)
-                logger.info("Self-ping keeping instances awake. Status: %s", response.status_code)
-        except Exception as e:
-            logger.warning("Keep-awake cycle execution missed: %s", e)
+    chat = result.chat
+    new_member = result.new_chat_member
+    old_member = result.old_chat_member
+    new_status = str(new_member.status)
 
-# ─────────────────────────────────────────────
-# TELEGRAM HANDLERS
-# ─────────────────────────────────────────────
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    kb = [[
-        InlineKeyboardButton("🇬🇧 English",     callback_data="lang_en"),
-        InlineKeyboardButton("🇰🇭 ភាសាខ្មែរ", callback_data="lang_km"),
-    ]]
-    await update.message.reply_text(t(context.bot_data, user_id, "select_lang"), reply_markup=InlineKeyboardMarkup(kb))
+    if not is_group_chat(chat.type):
+        return
 
-async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    lang    = query.data.split("_")[1]
+    await invalidate_chat_caches(chat.id)
 
-    user_state = context.bot_data.setdefault("user_state", {})
-    user_state.setdefault(user_id, {"lang": lang, "groups": []})
-    user_state[user_id]["lang"] = lang
+    # Bot removed/left: no need to keep checking stale permissions in cache.
+    banned_status = getattr(ChatMemberStatus, "BANNED", "kicked")
+    if new_status in {str(ChatMemberStatus.LEFT), str(banned_status), "left", "kicked"}:
+        logger.info("Bot removed from chat_id=%s title=%r", chat.id, chat.title)
+        return
 
-    kb = [
-        [InlineKeyboardButton(t(context.bot_data, user_id, "add_btn"), url=f"https://t.me/{context.bot.username}?startgroup=add")],
-        [InlineKeyboardButton(t(context.bot_data, user_id, "check_btn"), callback_data="check_perm")],
-    ]
-    await query.edit_message_text(
-        t(context.bot_data, user_id, "lang_set") + "\n\n" + t(context.bot_data, user_id, "welcome"),
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=InlineKeyboardMarkup(kb),
+    adder = result.from_user
+    if not adder or adder.is_bot:
+        return
+
+    await remember_user(context.bot_data, adder.id)
+    await add_group(context.bot_data, adder.id, chat.id)
+
+    safe_title = h(chat.title or "Group")
+    can_delete = bool(getattr(new_member, "can_delete_messages", False))
+    is_admin = new_status in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"}
+
+    if is_admin and can_delete:
+        msg = tr(context.bot_data, adder.id, "setup_ok", group=safe_title)
+    elif is_admin:
+        msg = tr(context.bot_data, adder.id, "no_delete_perm")
+    else:
+        msg = tr(context.bot_data, adder.id, "not_admin")
+
+    # Notify the user who added/promoted the bot. This may fail if they have not started the bot.
+    try:
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, adder.id, "check_btn"), callback_data="check_perm")]])
+        await context.bot.send_message(adder.id, msg, parse_mode=ParseMode.HTML, reply_markup=kb, disable_web_page_preview=True)
+    except TelegramError:
+        pass
+
+    logger.info(
+        "my_chat_member: chat_id=%s old=%s new=%s can_delete=%s",
+        chat.id,
+        getattr(old_member, "status", None),
+        new_status,
+        can_delete,
     )
 
-async def check_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    groups  = get_groups(context.bot_data, user_id)
-    retry_kb = InlineKeyboardMarkup([[InlineKeyboardButton(t(context.bot_data, user_id, "check_btn"), callback_data="check_perm")]])
 
-    if not groups:
-        await query.edit_message_text(t(context.bot_data, user_id, "no_group"), parse_mode=ParseMode.MARKDOWN, reply_markup=retry_kb)
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    chat = update.effective_chat
+    if not message or not chat or not message.document or not is_group_chat(chat.type):
         return
 
-    results = []
-    for chat_id in groups:
-        try:
-            chat   = await context.bot.get_chat(chat_id)
-            member = await context.bot.get_chat_member(chat_id, context.bot.id)
-            is_admin   = member.status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER)
-            can_delete = getattr(member, "can_delete_messages", False)
-            safe_title = escape_md(chat.title or "Group")
-
-            if not is_admin:
-                results.append(("❌", safe_title, t(context.bot_data, user_id, "not_admin")))
-            elif not can_delete:
-                results.append(("⚠️", safe_title, t(context.bot_data, user_id, "no_delete_perm")))
-            else:
-                results.append(("✅", safe_title, t(context.bot_data, user_id, "setup_ok", group=safe_title)))
-        except Exception as e:
-            logger.warning("Perm check error for %s: %s", chat_id, e)
-
-    msg = "\n\n".join(f"{i} *{ttl}*\n{d}" for i, ttl, d in results) if results else t(context.bot_data, user_id, "no_group")
-    await query.edit_message_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=retry_kb)
-
-async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query    = update.callback_query
-    await query.answer()
-
-    admin_id  = query.from_user.id
-    parts     = query.data.split(":", 2)
-    action    = parts[1]
-    ikey      = parts[2]
-
-    incidents = context.bot_data.setdefault("incidents", {})
-    incident  = incidents.get(ikey)
-    
-    if not incident or incident.get("done"):
-        await query.edit_message_text(t(context.bot_data, admin_id, "action_done"), parse_mode=ParseMode.MARKDOWN)
+    blocked, reason = document_block_reason(message.document)
+    if not blocked:
         return
 
-    incident["done"] = True   
-    chat_id     = incident["chat_id"]
-    sender_id   = incident["sender_id"]
-    sender_name = escape_md(incident["sender_name"])
-    file_name   = escape_md(incident["file_name"])
-    group_name  = escape_md(incident.get("group_name", str(chat_id)))
-
-    if action == "ban":
-        try:
-            await context.bot.ban_chat_member(chat_id, sender_id)
-            result_msg = t(context.bot_data, admin_id, "action_ban_ok", name=sender_name)
-        except Exception as e:
-            incident["done"] = False
-            result_msg = t(context.bot_data, admin_id, "action_ban_fail")
-            logger.error("Ban failed: %s", e)
-
-    elif action == "warn":
-        user_mention = f"[{sender_name}](tg://user?id={sender_id})"
-        warn_text = TEXTS[get_lang(context.bot_data, admin_id)]["warn_in_group"].format(user=user_mention)
-        try:
-            await context.bot.send_message(chat_id, warn_text, parse_mode=ParseMode.MARKDOWN)
-            result_msg = t(context.bot_data, admin_id, "action_warn_ok", name=sender_name)
-        except Exception as e:
-            incident["done"] = False
-            result_msg = f"❌ Could not send warning: {e}"
-    else:
-        result_msg = t(context.bot_data, admin_id, "action_ignore_ok")
-
-    lang    = get_lang(context.bot_data, admin_id)
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    new_text = TEXTS[lang]["admin_alert"].format(
-        sender_name=sender_name, sender_id=sender_id, file_name=file_name,
-        group_name=group_name, group_id=chat_id, time=now_str
-    ) + f"\n\n{result_msg}"
-    
-    try:
-        await query.edit_message_text(new_text, parse_mode=ParseMode.MARKDOWN)
-    except Exception:
-        pass
-
-async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    result     = update.my_chat_member
-    new_status = result.new_chat_member.status
-    chat       = result.chat
-
-    if chat.type not in ("group", "supergroup") or new_status not in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER):
-        return
-
-    adder_id   = result.from_user.id
-    add_group(context.bot_data, adder_id, chat.id)
-    can_delete = getattr(result.new_chat_member, "can_delete_messages", False)
-    safe_title = escape_md(chat.title or "Group")
-
-    msg = t(context.bot_data, adder_id, "setup_ok" if (new_status == ChatMemberStatus.ADMINISTRATOR and can_delete) else ("no_delete_perm" if new_status == ChatMemberStatus.ADMINISTRATOR else "not_admin"), group=safe_title)
-    try:
-        kb = [[InlineKeyboardButton(t(context.bot_data, adder_id, "check_btn"), callback_data="check_perm")]]
-        await context.bot.send_message(adder_id, msg, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
-    except Exception:
-        pass
-
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message
-    if not message or not message.document:
-        return
-
-    file_name = (message.document.file_name or "").strip().lower()
-    if not file_name.endswith(".exe") or message.chat.type not in ("group", "supergroup"):
-        return
-
-    sender       = message.from_user
-    sender_name  = sender.full_name if sender else "Unknown"
-    sender_id    = sender.id        if sender else 0
-    user_mention = f"[{escape_md(sender_name)}](tg://user?id={sender_id})"
+    sender = message.from_user
+    sender_id = sender.id if sender else 0
+    sender_name_raw = sender.full_name if sender else "Unknown"
+    file_name = normalize_filename(message.document.file_name)
 
     try:
         await message.delete()
-    except Exception as e:
-        logger.error("Delete failed: %s", e)
+    except TelegramError as exc:
+        logger.error("Could not delete blocked file chat_id=%s message_id=%s: %s", chat.id, message.message_id, exc)
+        await invalidate_chat_caches(chat.id)
+        return
+
+    user_mention = user_link(sender_id, sender_name_raw)
+    group_notice_lang_user = sender_id if sender_id else None
+    group_notice = tr(context.bot_data, group_notice_lang_user, "exe_removed_group", user=user_mention, ext=h(reason))
+    await safe_send_message(context, chat.id, group_notice)
+
+    ikey = incident_key(chat.id, sender_id, message.message_id)
+    async with BOT_DATA_LOCK:
+        context.bot_data.setdefault("incidents", {})[ikey] = {
+            "done": False,
+            "created_at_ms": now_ms(),
+            "chat_id": chat.id,
+            "group_name": chat.title or str(chat.id),
+            "sender_id": sender_id,
+            "sender_name": sender_name_raw,
+            "file_name": file_name,
+            "reason": reason,
+            "message_id": message.message_id,
+        }
+
+    await notify_admins(context, chat.id, chat.title or str(chat.id), sender, file_name, ikey)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id if update.effective_user else None
+    await safe_reply(update, tr(context.bot_data, user_id, "help"))
+
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat = update.effective_chat
+    user_id = update.effective_user.id if update.effective_user else None
+    if not chat or not is_group_chat(chat.type):
+        await safe_reply(update, tr(context.bot_data, user_id, "group_only"))
         return
 
     try:
-        await context.bot.send_message(message.chat.id, TEXTS["en"]["exe_removed_group"].format(user=user_mention), parse_mode=ParseMode.MARKDOWN)
-    except Exception:
-        pass
+        perms = await get_bot_member_cached(context, chat.id, force=True)
+        msg = tr(context.bot_data, user_id, "status_ok" if has_delete_permission(perms) else "status_no")
+    except TelegramError as exc:
+        msg = tr(context.bot_data, user_id, "status_error", error=h(str(exc)))
+    await safe_reply(update, msg)
 
-    ts = int(datetime.now(timezone.utc).timestamp() * 1000)
-    ikey = f"{message.chat.id}:{sender_id}:{ts}"
-    context.bot_data.setdefault("incidents", {})[ikey] = {
-        "done": False, "chat_id": message.chat.id, "group_name": message.chat.title or str(message.chat.id),
-        "sender_id": sender_id, "sender_name": sender_name, "file_name": message.document.file_name or "Unknown.exe"
-    }
-    await notify_admins(context, message.chat.id, message.chat.title or str(message.chat.id), sender, message.document.file_name or "Unknown.exe", ikey)
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(t(context.bot_data, update.effective_user.id, "help"), parse_mode=ParseMode.MARKDOWN)
-
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admins_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat
-    if chat.type not in ("group", "supergroup"):
-        await update.message.reply_text("Send /status inside a group.")
+    user_id = update.effective_user.id if update.effective_user else None
+    if not chat or not is_group_chat(chat.type):
+        await safe_reply(update, tr(context.bot_data, user_id, "group_only"))
         return
-    try:
-        member = await context.bot.get_chat_member(chat.id, context.bot.id)
-        msg = t(context.bot_data, update.effective_user.id, "status_ok" if (member.status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER) and getattr(member, "can_delete_messages", False)) else "status_no")
-    except Exception as e:
-        msg = f"Error: {e}"
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
-async def admins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    if chat.type not in ("group", "supergroup"):
-        await update.message.reply_text("Send /admins inside a group.")
-        return
     try:
         admins = await context.bot.get_chat_administrators(chat.id)
-        lines = [f"{i}. [{escape_md(a.user.full_name)}](tg://user?id={a.user.id})" + (f" _{escape_md(a.custom_title)}_" if getattr(a, "custom_title", None) else "") for i, a in enumerate([a for a in admins if not a.user.is_bot], 1)]
-        msg = t(context.bot_data, update.effective_user.id, "admins_header") + "\n".join(lines) + t(context.bot_data, update.effective_user.id, "admins_note")
-    except Exception as e:
-        msg = f"Error: {e}"
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        human_admins = [a for a in admins if not a.user.is_bot]
+        ready_user_ids = set(context.bot_data.get("user_state", {}).keys())
+        lang = get_lang(context.bot_data, user_id)
+        lines = []
+        for i, admin in enumerate(human_admins, 1):
+            status = TEXTS[lang]["admins_enabled"] if admin.user.id in ready_user_ids else TEXTS[lang]["admins_need_start"]
+            title = f" — <i>{h(admin.custom_title)}</i>" if getattr(admin, "custom_title", None) else ""
+            lines.append(f"{i}. {user_link(admin.user.id, admin.user.full_name)}{title} — {status}")
+        msg = tr(context.bot_data, user_id, "admins_header") + "\n".join(lines) + tr(context.bot_data, user_id, "admins_note")
+    except TelegramError as exc:
+        msg = tr(context.bot_data, user_id, "status_error", error=h(str(exc)))
+    await safe_reply(update, msg)
 
-# ─────────────────────────────────────────────
-# MAIN EXECUTION
-# ─────────────────────────────────────────────
-def main():
-    persistence = PicklePersistence(filepath="exe_bot_data.pickle")
-    app = Application.builder().token(BOT_TOKEN).persistence(persistence).build()
 
-    # Register handlers
-    app.add_handler(CommandHandler("start",  start))
-    app.add_handler(CommandHandler("help",   help_command))
+# ─────────────────────────────────────────────────────────────
+# APP LIFECYCLE / ERROR HANDLING
+# ─────────────────────────────────────────────────────────────
+
+
+async def post_init(application: Application) -> None:
+    global BOT_ID, BOT_USERNAME
+    me = await application.bot.get_me()
+    BOT_ID = int(me.id)
+    BOT_USERNAME = me.username or ""
+    logger.info("Bot initialized as @%s id=%s", BOT_USERNAME, BOT_ID)
+
+    try:
+        await application.bot.set_my_commands(
+            [
+                ("start", "Choose language and setup"),
+                ("help", "Show help"),
+                ("status", "Check bot status in a group"),
+                ("admins", "Show admin alert status in a group"),
+            ]
+        )
+    except TelegramError as exc:
+        logger.warning("Could not set bot commands: %s", exc)
+
+
+async def post_shutdown(application: Application) -> None:
+    global KEEP_AWAKE_CLIENT
+    if KEEP_AWAKE_CLIENT is not None:
+        await KEEP_AWAKE_CLIENT.aclose()
+        KEEP_AWAKE_CLIENT = None
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.exception("Unhandled exception while processing update", exc_info=context.error)
+
+
+def build_application() -> Application:
+    persistence = PicklePersistence(filepath=PERSISTENCE_FILE)
+
+    builder: ApplicationBuilder = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .persistence(persistence)
+        .concurrent_updates(MAX_CONCURRENT_UPDATES)
+        .connection_pool_size(TELEGRAM_CONNECTION_POOL_SIZE)
+        .pool_timeout(TELEGRAM_POOL_TIMEOUT)
+        .connect_timeout(10.0)
+        .read_timeout(20.0)
+        .write_timeout(20.0)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+    )
+
+    app = builder.build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("admins", admins_command))
-    app.add_handler(CallbackQueryHandler(lang_callback,       pattern=r"^lang_(en|km)$"))
+    app.add_handler(CallbackQueryHandler(lang_callback, pattern=r"^lang_(en|km)$"))
     app.add_handler(CallbackQueryHandler(check_perm_callback, pattern=r"^check_perm$"))
-    app.add_handler(CallbackQueryHandler(action_callback,     pattern=r"^act:(ban|warn|ignore):.+$"))
-    app.add_handler(ChatMemberHandler(my_chat_member_update,  ChatMemberHandler.MY_CHAT_MEMBER))
+    app.add_handler(CallbackQueryHandler(action_callback, pattern=r"^act:(ban|warn|ignore):.+$"))
+    app.add_handler(ChatMemberHandler(my_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.Document.ALL & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP), handle_document))
+    app.add_error_handler(error_handler)
 
     if app.job_queue:
-        app.job_queue.run_repeating(clean_old_incidents, interval=3600, first=10)
-        if RENDER_URL:
-            # Wake loop runs every 10 minutes (600 seconds)
-            app.job_queue.run_repeating(keep_awake, interval=600, first=30)
+        app.job_queue.run_repeating(clean_old_incidents, interval=3600, first=30, name="clean_old_incidents")
+        app.job_queue.run_repeating(cleanup_runtime_caches, interval=600, first=600, name="cleanup_runtime_caches")
 
-    # Production Webhook Engine vs Local Testing Polling Switch
-    if RENDER_URL:
-        logger.info("Production Mode: Starting Webhook engine on port %s", PORT)
+        default_keep_awake = bool(WEBHOOK_BASE_URL and (RENDER_EXTERNAL_URL or BOT_MODE == "WEBHOOK"))
+        if _env_bool("KEEP_AWAKE_ENABLED", default_keep_awake):
+            app.job_queue.run_repeating(keep_awake, interval=KEEP_AWAKE_INTERVAL_SECONDS, first=30, name="keep_awake")
+    else:
+        logger.warning(
+            "JobQueue is unavailable. Install python-telegram-bot with [job-queue] extras to enable cleanup/keep-awake jobs."
+        )
+
+    return app
+
+
+def resolve_run_mode() -> str:
+    if BOT_MODE == "WEBHOOK":
+        return "WEBHOOK"
+    if BOT_MODE == "POLLING":
+        return "POLLING"
+    return "WEBHOOK" if WEBHOOK_BASE_URL else "POLLING"
+
+
+def main() -> None:
+    app = build_application()
+    mode = resolve_run_mode()
+
+    if mode == "WEBHOOK":
+        if not WEBHOOK_BASE_URL:
+            raise RuntimeError("WEBHOOK mode requires WEBHOOK_URL or RENDER_EXTERNAL_URL.")
+        webhook_url = f"{WEBHOOK_BASE_URL}/{WEBHOOK_URL_PATH}"
+        logger.info(
+            "Starting webhook mode on 0.0.0.0:%s path=/%s drop_pending_updates=%s",
+            PORT,
+            WEBHOOK_URL_PATH,
+            DROP_PENDING_UPDATES,
+        )
         app.run_webhook(
             listen="0.0.0.0",
             port=PORT,
-            url_path=BOT_TOKEN,
-            webhook_url=f"{RENDER_URL}/{BOT_TOKEN}",
-            allowed_updates=Update.ALL_TYPES
+            url_path=WEBHOOK_URL_PATH,
+            webhook_url=webhook_url,
+            allowed_updates=ALLOWED_UPDATES,
+            drop_pending_updates=DROP_PENDING_UPDATES,
         )
     else:
-        logger.info("Development Mode: Starting standard Polling system...")
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+        logger.info("Starting polling mode drop_pending_updates=%s", DROP_PENDING_UPDATES)
+        app.run_polling(allowed_updates=ALLOWED_UPDATES, drop_pending_updates=DROP_PENDING_UPDATES)
+
 
 if __name__ == "__main__":
     main()
