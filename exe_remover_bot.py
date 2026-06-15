@@ -1087,6 +1087,7 @@ PERSISTED_BOT_DATA_KEYS = (
     "group_state",
     "known_users",
     "incidents",
+    "incident_tokens",
     "warning_counts",
     "settings",
     "whitelisted_hashes",
@@ -2714,14 +2715,70 @@ async def setup_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> In
     )
 
 
+def ensure_incident_action_token(bot_data: dict[str, Any], ikey: str) -> str:
+    """Return a compact callback token for an incident.
+
+    Telegram callback_data is limited to 64 bytes. Full incident keys include
+    chat_id, user_id, message_id, timestamp, and randomness, so using the full
+    key inside ``act:ban:<ikey>`` can exceed that limit and Telegram rejects the
+    inline keyboard. Store a short token instead and resolve it back to ikey in
+    action_callback.
+    """
+    key = str(ikey or "")
+    if not key:
+        key = secrets.token_urlsafe(12)
+
+    incidents = bot_data.setdefault("incidents", {})
+    incident = incidents.get(key) if isinstance(incidents, dict) else None
+    if isinstance(incident, dict):
+        existing = str(incident.get("action_token") or "")
+        if re.fullmatch(r"[A-Za-z0-9_-]{8,24}", existing):
+            return existing
+
+    tokens = bot_data.setdefault("incident_tokens", {})
+    if not isinstance(tokens, dict):
+        tokens = {}
+        bot_data["incident_tokens"] = tokens
+
+    for token, stored_key in list(tokens.items()):
+        if str(stored_key) == key and re.fullmatch(r"[A-Za-z0-9_-]{8,24}", str(token)):
+            if isinstance(incident, dict):
+                incident["action_token"] = str(token)
+            return str(token)
+
+    while True:
+        token = secrets.token_urlsafe(9).rstrip("=")[:12]
+        if token and token not in tokens:
+            break
+    tokens[token] = key
+    if isinstance(incident, dict):
+        incident["action_token"] = token
+    return token
+
+
+def resolve_incident_action_key(bot_data: dict[str, Any], token_or_key: str) -> str:
+    value = str(token_or_key or "")
+    tokens = bot_data.get("incident_tokens", {})
+    if isinstance(tokens, dict) and value in tokens:
+        return str(tokens.get(value) or value)
+    incidents = bot_data.get("incidents", {})
+    if isinstance(incidents, dict):
+        for ikey, incident in incidents.items():
+            if isinstance(incident, dict) and str(incident.get("action_token") or "") == value:
+                return str(ikey)
+    # Backward compatibility for old admin alert buttons that used the full ikey.
+    return value
+
+
 def action_keyboard(bot_data: dict[str, Any], admin_id: int, ikey: str) -> InlineKeyboardMarkup:
     lang = get_lang(bot_data, admin_id)
+    token = ensure_incident_action_token(bot_data, ikey)
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(TEXTS[lang]["btn_ban"], callback_data=f"act:ban:{ikey}"),
-                InlineKeyboardButton(TEXTS[lang]["btn_warn"], callback_data=f"act:warn:{ikey}"),
-                InlineKeyboardButton(TEXTS[lang]["btn_ignore"], callback_data=f"act:ignore:{ikey}"),
+                InlineKeyboardButton(TEXTS[lang]["btn_ban"], callback_data=f"act:ban:{token}"),
+                InlineKeyboardButton(TEXTS[lang]["btn_warn"], callback_data=f"act:warn:{token}"),
+                InlineKeyboardButton(TEXTS[lang]["btn_ignore"], callback_data=f"act:ignore:{token}"),
             ]
         ]
     )
@@ -2926,8 +2983,26 @@ def _yes_no(value: bool) -> str:
     return "✅" if value else "❌"
 
 def _safe_chat_id_from_payload(payload: str) -> int | None:
+    """Extract a Telegram chat_id from callback/deep-link payloads.
+
+    Supported payloads:
+    - settings_-1001234567890
+    - group_-1001234567890
+    - grp:-1001234567890
+    - raw -1001234567890
+
+    The previous implementation only split by underscore, so button payloads
+    like ``grp:-100...`` failed and showed the generic Khmer/English error.
+    """
     try:
-        return int(payload.rsplit("_", 1)[-1])
+        raw = str(payload or "").strip()
+        if not raw:
+            return None
+        if ":" in raw:
+            raw = raw.rsplit(":", 1)[-1]
+        elif "_" in raw:
+            raw = raw.rsplit("_", 1)[-1]
+        return int(raw)
     except (TypeError, ValueError):
         return None
 
@@ -4700,6 +4775,12 @@ async def clean_old_incidents(context: ContextTypes.DEFAULT_TYPE) -> None:
                 stale_keys.append(str(ikey))
         for ikey in stale_keys:
             incidents.pop(ikey, None)
+        tokens = context.bot_data.get("incident_tokens", {})
+        if isinstance(tokens, dict) and stale_keys:
+            stale_set = set(stale_keys)
+            for token, stored_key in list(tokens.items()):
+                if str(stored_key) in stale_set:
+                    tokens.pop(token, None)
         if stale_keys:
             await persist_context_memory(context, reason="cleanup_incidents", force=True, caller_holds_lock=True)
 
@@ -4749,6 +4830,16 @@ async def cleanup_runtime_caches(context: ContextTypes.DEFAULT_TYPE) -> None:
         incidents = context.bot_data.get("incidents")
         if isinstance(incidents, dict):
             active_incident_keys = {str(k) for k in incidents.keys()}
+        tokens = context.bot_data.get("incident_tokens", {})
+        if isinstance(tokens, dict):
+            before = len(tokens)
+            for token, stored_key in list(tokens.items()):
+                if str(stored_key) not in active_incident_keys:
+                    tokens.pop(token, None)
+            if len(tokens) != before:
+                pruned = True
+        if pruned:
+            await persist_context_memory(context, reason="cleanup_runtime_caches", force=True, caller_holds_lock=True)
     async with INCIDENT_LOCKS_LOCK:
         if len(INCIDENT_LOCKS) > RUNTIME_LOCK_PRUNE_LIMIT:
             logger.warning("INCIDENT_LOCKS size=%s exceeded limit=%s; pruning aggressively", len(INCIDENT_LOCKS), RUNTIME_LOCK_PRUNE_LIMIT)
@@ -4942,11 +5033,12 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if len(parts) != 3:
         await safe_edit_query(query, tr(context.bot_data, admin_id, "unknown_error"))
         return
-    _, action, ikey = parts
+    _, action, token_or_ikey = parts
     if action not in {"ban", "warn", "ignore"}:
         await safe_edit_query(query, tr(context.bot_data, admin_id, "unknown_error"))
         return
 
+    ikey = resolve_incident_action_key(context.bot_data, token_or_ikey)
     lock = await get_incident_lock(ikey)
     async with lock:
         async with BOT_DATA_LOCK:
@@ -5233,7 +5325,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         ikey = incident_key(chat.id, sender_id, message.message_id)
         async with BOT_DATA_LOCK:
-            context.bot_data.setdefault("incidents", {})[ikey] = {
+            incident_record = {
                 "done": False,
                 "created_at_ms": now_ms(),
                 "chat_id": chat.id,
@@ -5250,6 +5342,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "message_id": message.message_id,
                 "alert_messages": {},
             }
+            context.bot_data.setdefault("incidents", {})[ikey] = incident_record
+            ensure_incident_action_token(context.bot_data, ikey)
             await persist_context_memory(context, reason="incident_created", force=True, caller_holds_lock=True)
         await maybe_apply_auto_action(context, chat_id=chat.id, sender_id=sender_id, sender_name=sender_name_raw, ikey=ikey)
         await notify_admins(context, chat.id, chat.title or str(chat.id), sender, file_name, ikey, scan_reason)
