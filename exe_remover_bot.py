@@ -12,7 +12,7 @@ import secrets
 import time
 import unicodedata
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from html import escape as html_escape
 from typing import Any, Generic, Iterable, TypeVar
@@ -438,6 +438,120 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "unknown_error": "មានបញ្ហាមួយកើតឡើង។ សូមព្យាយាមម្តងទៀត។",
     },
+}
+
+
+# ─────────────────────────────────────────────────────────────
+# DYNAMIC USER FLOW / GROUP SETTINGS TEXT
+# ─────────────────────────────────────────────────────────────
+
+EXTRA_TEXTS: dict[str, dict[str, str]] = {
+    "en": {
+        "home_title": (
+            "🛡️ <b>EXE Remover Bot</b>\n\n"
+            "Status: <b>Online</b>\n"
+            "Use the buttons below. You can always come back here, so the setup flow never gets stuck."
+        ),
+        "btn_home": "🏠 Home",
+        "btn_groups": "👥 My Groups",
+        "btn_add_group": "➕ Add to Group",
+        "btn_help": "💡 Help",
+        "btn_refresh": "🔄 Refresh",
+        "btn_settings": "⚙️ Settings",
+        "btn_back": "⬅️ Back",
+        "groups_title": "👥 <b>Your linked groups</b>\n\nChoose a group to check permissions or change protection settings.",
+        "groups_empty": (
+            "⚠️ <b>No linked groups yet.</b>\n\n"
+            "Add me to a group, or run <code>/settings</code> inside the group so I can safely link that group to your private dashboard."
+        ),
+        "group_card": (
+            "💬 <b>{group}</b>\n"
+            "Permission: {permission}\n"
+            "Protection: {protection}\n"
+            "Strictness: <code>{strictness}</code>\n"
+            "Silent mode: <code>{silent}</code>"
+        ),
+        "settings_title": (
+            "⚙️ <b>Group Settings</b>\n"
+            "💬 <b>{group}</b> <code>{chat_id}</code>\n\n"
+            "Protection: {protection}\n"
+            "Strictness: <code>{strictness}</code>\n"
+            "Silent mode: <code>{silent}</code>\n"
+            "Allowed extensions: <code>{allowed}</code>\n\n"
+            "Standard blocks <code>.exe</code> and renamed Windows executables. High blocks all dangerous extensions."
+        ),
+        "settings_saved": "✅ Settings updated.",
+        "group_linked": "✅ Group linked to your private dashboard.",
+        "group_admin_only": "❌ Only group admins can open this dashboard.",
+        "settings_group_open_private": "⚙️ Manage this group in private chat:",
+        "protection_on": "ON",
+        "protection_off": "OFF",
+        "silent_on": "true",
+        "silent_off": "false",
+        "strict_standard": "standard",
+        "strict_high": "high",
+        "perm_ok": "✅ Delete OK",
+        "perm_no": "❌ Need Delete Messages",
+        "perm_unknown": "⚠️ Unknown",
+    },
+    "km": {
+        "home_title": (
+            "🛡️ <b>EXE Remover Bot</b>\n\n"
+            "ស្ថានភាព: <b>Online</b>\n"
+            "ប្រើប៊ូតុងខាងក្រោម។ អ្នកអាចត្រឡប់មក Home បានជានិច្ច ដូច្នេះ flow មិនជាប់គាំងទេ។"
+        ),
+        "btn_home": "🏠 Home",
+        "btn_groups": "👥 ក្រុមរបស់ខ្ញុំ",
+        "btn_add_group": "➕ បន្ថែមទៅក្រុម",
+        "btn_help": "💡 ជំនួយ",
+        "btn_refresh": "🔄 Refresh",
+        "btn_settings": "⚙️ កំណត់",
+        "btn_back": "⬅️ ត្រឡប់ក្រោយ",
+        "groups_title": "👥 <b>ក្រុមដែលបានភ្ជាប់</b>\n\nជ្រើសក្រុម ដើម្បីពិនិត្យសិទ្ធិ ឬកែ settings។",
+        "groups_empty": (
+            "⚠️ <b>មិនទាន់មានក្រុមដែលបានភ្ជាប់ទេ។</b>\n\n"
+            "បន្ថែម Bot ទៅក្រុម ឬវាយ <code>/settings</code> ក្នុងក្រុម ដើម្បីភ្ជាប់ទៅ private dashboard។"
+        ),
+        "group_card": (
+            "💬 <b>{group}</b>\n"
+            "សិទ្ធិ: {permission}\n"
+            "Protection: {protection}\n"
+            "Strictness: <code>{strictness}</code>\n"
+            "Silent mode: <code>{silent}</code>"
+        ),
+        "settings_title": (
+            "⚙️ <b>Group Settings</b>\n"
+            "💬 <b>{group}</b> <code>{chat_id}</code>\n\n"
+            "Protection: {protection}\n"
+            "Strictness: <code>{strictness}</code>\n"
+            "Silent mode: <code>{silent}</code>\n"
+            "Allowed extensions: <code>{allowed}</code>\n\n"
+            "Standard block <code>.exe</code> និង renamed Windows executables។ High block dangerous extensions ទាំងអស់។"
+        ),
+        "settings_saved": "✅ បានកែ settings រួចរាល់។",
+        "group_linked": "✅ បានភ្ជាប់ក្រុមទៅ private dashboard រួច។",
+        "group_admin_only": "❌ មានតែ Admin ក្នុងក្រុមប៉ុណ្ណោះអាចបើក dashboard នេះបាន។",
+        "settings_group_open_private": "⚙️ គ្រប់គ្រងក្រុមនេះក្នុង private chat:",
+        "protection_on": "ON",
+        "protection_off": "OFF",
+        "silent_on": "true",
+        "silent_off": "false",
+        "strict_standard": "standard",
+        "strict_high": "high",
+        "perm_ok": "✅ Delete OK",
+        "perm_no": "❌ ត្រូវការ Delete Messages",
+        "perm_unknown": "⚠️ មិនដឹង",
+    },
+}
+
+for _lang, _items in EXTRA_TEXTS.items():
+    TEXTS.setdefault(_lang, {}).update(_items)
+
+DEFAULT_GROUP_SETTINGS: dict[str, Any] = {
+    "protection_enabled": True,
+    "strictness": "standard",  # standard=.exe/PE only, high=all dangerous extensions
+    "silent_mode": False,
+    "allowed_extensions": [],
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -1087,6 +1201,330 @@ def action_keyboard(bot_data: dict[str, Any], admin_id: int, ikey: str) -> Inlin
 
 
 # ─────────────────────────────────────────────────────────────
+# DYNAMIC PRIVATE DASHBOARD / GROUP SETTINGS FLOW
+# ─────────────────────────────────────────────────────────────
+
+
+def _user_state_exists(bot_data: dict[str, Any], user_id: int) -> bool:
+    users = bot_data.get("user_state", {})
+    return user_id in users or str(user_id) in users
+
+
+def get_group_settings(bot_data: dict[str, Any], chat_id: int) -> dict[str, Any]:
+    state = get_group_state(bot_data, chat_id)
+    settings = state.setdefault("settings", {})
+    if not isinstance(settings, dict):
+        settings = {}
+        state["settings"] = settings
+    for key, value in DEFAULT_GROUP_SETTINGS.items():
+        if key not in settings:
+            settings[key] = list(value) if isinstance(value, list) else value
+    if settings.get("strictness") not in {"standard", "high"}:
+        settings["strictness"] = "standard"
+    if not isinstance(settings.get("allowed_extensions"), list):
+        settings["allowed_extensions"] = []
+    settings["allowed_extensions"] = [
+        _normalize_extension(str(ext)) for ext in settings.get("allowed_extensions", []) if str(ext).strip()
+    ]
+    settings["protection_enabled"] = bool(settings.get("protection_enabled", True))
+    settings["silent_mode"] = bool(settings.get("silent_mode", False))
+    return settings
+
+
+def _on_off(bot_data: dict[str, Any], user_id: int | None, enabled: bool, *, key_on: str = "protection_on", key_off: str = "protection_off") -> str:
+    return tr(bot_data, user_id, key_on if enabled else key_off)
+
+
+def _strictness_label(bot_data: dict[str, Any], user_id: int | None, strictness: str) -> str:
+    return tr(bot_data, user_id, "strict_high" if strictness == "high" else "strict_standard")
+
+
+def _safe_chat_id_from_payload(payload: str) -> int | None:
+    try:
+        return int(payload.rsplit("_", 1)[-1])
+    except (TypeError, ValueError):
+        return None
+
+
+async def is_user_admin_in_group(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int) -> bool:
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+    except TelegramError as exc:
+        logger.info("Could not verify admin user_id=%s chat_id=%s: %s", user_id, chat_id, exc)
+        return False
+    status = str(getattr(member, "status", ""))
+    return status in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"}
+
+
+async def link_user_to_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> None:
+    await add_group(context.bot_data, user_id, chat_id)
+    await remember_group(context.bot_data, chat_id, added_by=user_id, lang=get_lang(context.bot_data, user_id))
+    await persist_context_memory(context, reason="link_user_group", force=True)
+
+
+async def group_private_settings_url(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> str:
+    _, username = await get_bot_identity(context.bot)
+    return f"https://t.me/{username}?start=settings_{chat_id}" if username else "https://t.me/"
+
+
+async def dashboard_home_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> InlineKeyboardMarkup:
+    _, username = await get_bot_identity(context.bot)
+    add_url = f"https://t.me/{username}?startgroup=add" if username else "https://t.me/"
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_groups"), callback_data="nav:groups")],
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=add_url)],
+            [
+                InlineKeyboardButton(tr(context.bot_data, user_id, "btn_help"), callback_data="nav:help"),
+                InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh"), callback_data="nav:home"),
+            ],
+        ]
+    )
+
+
+def dashboard_back_home_keyboard(bot_data: dict[str, Any], user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data="nav:groups")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
+        ]
+    )
+
+
+async def send_or_edit_panel(update: Update, text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
+    query = update.callback_query
+    if query:
+        await safe_edit_query(query, text, reply_markup=reply_markup)
+    else:
+        await safe_reply(update, text, reply_markup=reply_markup)
+
+
+async def render_home(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    await send_or_edit_panel(update, tr(context.bot_data, user_id, "home_title"), await dashboard_home_keyboard(context, user_id))
+
+
+async def render_help_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    await send_or_edit_panel(update, tr(context.bot_data, user_id, "help"), dashboard_back_home_keyboard(context.bot_data, user_id))
+
+
+async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    groups = get_groups(context.bot_data, user_id)
+    if not groups:
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=(await dashboard_home_keyboard(context, user_id)).inline_keyboard[1][0].url)],
+                [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
+            ]
+        )
+        await send_or_edit_panel(update, tr(context.bot_data, user_id, "groups_empty"), kb)
+        return
+
+    rows: list[list[InlineKeyboardButton]] = []
+    lines = [tr(context.bot_data, user_id, "groups_title")]
+    sem = asyncio.Semaphore(5)
+
+    async def describe_group(chat_id: int) -> tuple[int, str, str]:
+        async with sem:
+            try:
+                chat = await context.bot.get_chat(chat_id)
+                title = chat.title or str(chat_id)
+            except TelegramError:
+                title = str(chat_id)
+            try:
+                perms = await get_bot_member_cached(context, chat_id, force=True)
+                permission = tr(context.bot_data, user_id, "perm_ok" if has_delete_permission(perms) else "perm_no")
+            except TelegramError:
+                permission = tr(context.bot_data, user_id, "perm_unknown")
+            settings = get_group_settings(context.bot_data, chat_id)
+            card = tr(
+                context.bot_data,
+                user_id,
+                "group_card",
+                group=h(title),
+                permission=permission,
+                protection=_on_off(context.bot_data, user_id, bool(settings.get("protection_enabled"))),
+                strictness=_strictness_label(context.bot_data, user_id, str(settings.get("strictness", "standard"))),
+                silent=_on_off(context.bot_data, user_id, bool(settings.get("silent_mode")), key_on="silent_on", key_off="silent_off"),
+            )
+            return chat_id, title, card
+
+    described = await asyncio.gather(*(describe_group(chat_id) for chat_id in groups), return_exceptions=True)
+    for item in described:
+        if isinstance(item, Exception):
+            logger.warning("Group dashboard render failed: %s", item)
+            continue
+        chat_id, title, card = item
+        lines.append(card)
+        rows.append([InlineKeyboardButton(f"⚙️ {title[:32]}", callback_data=f"grp:{chat_id}")])
+
+    rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh"), callback_data="nav:groups")])
+    rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")])
+    await send_or_edit_panel(update, "\n\n".join(lines), InlineKeyboardMarkup(rows))
+
+
+def group_settings_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
+    settings = get_group_settings(bot_data, chat_id)
+    protection = "✅" if settings.get("protection_enabled") else "❌"
+    strictness = "High" if settings.get("strictness") == "high" else "Standard"
+    silent = "✅" if settings.get("silent_mode") else "❌"
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(f"{protection} Protection", callback_data=f"gset:{chat_id}:protection")],
+            [InlineKeyboardButton(f"🧪 Strictness: {strictness}", callback_data=f"gset:{chat_id}:strictness")],
+            [InlineKeyboardButton(f"🤫 Silent Mode: {silent}", callback_data=f"gset:{chat_id}:silent")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data="nav:groups")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
+        ]
+    )
+
+
+async def render_group_settings_panel(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    chat_id: int,
+    *,
+    notice: str = "",
+) -> None:
+    try:
+        chat = await context.bot.get_chat(chat_id)
+        title = chat.title or str(chat_id)
+    except TelegramError:
+        title = str(chat_id)
+
+    settings = get_group_settings(context.bot_data, chat_id)
+    allowed = ", ".join(settings.get("allowed_extensions", [])) or "none"
+    text = tr(
+        context.bot_data,
+        user_id,
+        "settings_title",
+        group=h(title),
+        chat_id=chat_id,
+        protection=_on_off(context.bot_data, user_id, bool(settings.get("protection_enabled"))),
+        strictness=_strictness_label(context.bot_data, user_id, str(settings.get("strictness", "standard"))),
+        silent=_on_off(context.bot_data, user_id, bool(settings.get("silent_mode")), key_on="silent_on", key_off="silent_off"),
+        allowed=h(allowed),
+    )
+    if notice:
+        text = f"{notice}\n\n{text}"
+    await send_or_edit_panel(update, text, group_settings_keyboard(context.bot_data, user_id, chat_id))
+
+
+async def navigation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data or ""
+    if data == "nav:home":
+        await render_home(update, context, user_id)
+    elif data == "nav:groups":
+        await render_groups_panel(update, context, user_id)
+    elif data == "nav:help":
+        await render_help_panel(update, context, user_id)
+    else:
+        await render_home(update, context, user_id)
+
+
+async def group_dashboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data or ""
+    chat_id = _safe_chat_id_from_payload(data)
+    if chat_id is None:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    if not await is_user_admin_in_group(context, chat_id, user_id):
+        await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
+    await link_user_to_group(context, user_id, chat_id)
+    await render_group_settings_panel(update, context, user_id, chat_id)
+
+
+async def group_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data or ""
+    parts = data.split(":", 2)
+    if len(parts) != 3:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    _, chat_id_raw, field = parts
+    try:
+        chat_id = int(chat_id_raw)
+    except ValueError:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    if not await is_user_admin_in_group(context, chat_id, user_id):
+        await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
+
+    async with BOT_DATA_LOCK:
+        settings = get_group_settings(context.bot_data, chat_id)
+        if field == "protection":
+            settings["protection_enabled"] = not bool(settings.get("protection_enabled", True))
+        elif field == "strictness":
+            settings["strictness"] = "high" if settings.get("strictness") == "standard" else "standard"
+        elif field == "silent":
+            settings["silent_mode"] = not bool(settings.get("silent_mode", False))
+        else:
+            await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+            return
+
+    await link_user_to_group(context, user_id, chat_id)
+    await persist_context_memory(context, reason="group_settings_update", force=True)
+    await render_group_settings_panel(update, context, user_id, chat_id, notice=tr(context.bot_data, user_id, "settings_saved"))
+
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    chat = update.effective_chat
+    if not user:
+        return
+    await remember_user_profile(context.bot_data, user)
+
+    if chat and is_group_chat(chat.type):
+        if not await is_user_admin_in_group(context, chat.id, user.id):
+            await safe_reply(update, tr(context.bot_data, user.id, "group_admin_only"))
+            return
+        await link_user_to_group(context, user.id, chat.id)
+        url = await group_private_settings_url(context, chat.id)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user.id, "btn_settings"), url=url)]])
+        await safe_reply(update, tr(context.bot_data, user.id, "settings_group_open_private"), reply_markup=kb)
+        return
+
+    # Private /settings opens the user's dynamic group dashboard.
+    await render_groups_panel(update, context, user.id)
+
+
+def apply_group_scan_policy(bot_data: dict[str, Any], chat_id: int, scan: FileScanResult) -> FileScanResult:
+    settings = get_group_settings(bot_data, chat_id)
+    if not settings.get("protection_enabled", True):
+        return replace(scan, blocked=False, reason_code="protection_disabled", reason_display="group protection is disabled")
+
+    matched_ext = _normalize_extension(scan.matched_extension) if scan.matched_extension else ""
+    allowed_exts = {_normalize_extension(ext) for ext in settings.get("allowed_extensions", []) if str(ext).strip()}
+    if matched_ext and matched_ext in allowed_exts:
+        return replace(scan, blocked=False, reason_code="allowed_extension", reason_display=f"allowed by group settings: {matched_ext}")
+
+    strictness = str(settings.get("strictness", "standard"))
+    if strictness == "standard" and scan.blocked:
+        # Standard mode is intentionally calm: block .exe, renamed PE files, and archives containing .exe only.
+        if matched_ext in BLOCKED_EXTENSIONS or scan.reason_code == "pe_magic_header":
+            return scan
+        return replace(scan, blocked=False, reason_code="standard_mode_allowed", reason_display="allowed by Standard strictness")
+
+    return scan
+
+
+# ─────────────────────────────────────────────────────────────
 # ADMIN ALERTS
 # ─────────────────────────────────────────────────────────────
 
@@ -1321,8 +1759,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat
     if not user:
         return
+
+    was_known = _user_state_exists(context.bot_data, user.id)
     await remember_user_profile(context.bot_data, user)
     await persist_context_memory(context, reason="start", force=True)
+
+    # Deep-link flow from /settings inside a group: /start settings_<chat_id>
+    payload = (context.args[0] if context.args else "").strip()
+    if payload.startswith(("settings_", "group_")):
+        linked_chat_id = _safe_chat_id_from_payload(payload)
+        if linked_chat_id is not None and await is_user_admin_in_group(context, linked_chat_id, user.id):
+            await link_user_to_group(context, user.id, linked_chat_id)
+            await render_group_settings_panel(
+                update,
+                context,
+                user.id,
+                linked_chat_id,
+                notice=tr(context.bot_data, user.id, "group_linked"),
+            )
+            return
+        await safe_reply(update, tr(context.bot_data, user.id, "group_admin_only"), reply_markup=await dashboard_home_keyboard(context, user.id))
+        return
 
     if chat and is_group_chat(chat.type):
         _, username = await get_bot_identity(context.bot)
@@ -1330,7 +1787,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await safe_reply(update, tr(context.bot_data, user.id, "private_start"), reply_markup=kb)
         return
 
-    await safe_reply(update, tr(context.bot_data, user.id, "select_lang"), reply_markup=language_keyboard())
+    # New users choose a language first. Returning users go straight to Home.
+    if not was_known:
+        await safe_reply(update, tr(context.bot_data, user.id, "select_lang"), reply_markup=language_keyboard())
+    else:
+        await render_home(update, context, user.id)
 
 
 async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1348,8 +1809,11 @@ async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     await remember_user_profile(context.bot_data, query.from_user, lang)
     await persist_context_memory(context, reason="language", force=True)
-    kb = await setup_keyboard(context, user_id)
-    await safe_edit_query(query, tr(context.bot_data, user_id, "lang_set") + "\n\n" + tr(context.bot_data, user_id, "welcome"), reply_markup=kb)
+    await safe_edit_query(
+        query,
+        tr(context.bot_data, user_id, "lang_set") + "\n\n" + tr(context.bot_data, user_id, "welcome"),
+        reply_markup=await dashboard_home_keyboard(context, user_id),
+    )
 
 
 async def check_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1564,6 +2028,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     scan = await scan_document(context, message.document)
+    scan = apply_group_scan_policy(context.bot_data, chat.id, scan)
     if not scan.blocked:
         return
 
@@ -1584,8 +2049,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await remember_group(context.bot_data, chat.id, lang=get_group_lang(context.bot_data, chat.id))
     user_mention = user_link(sender_id, sender_name_raw)
     scan_reason = describe_scan_reason(scan.reason_code, (scan.reason_display, *scan.details))
-    group_notice = tr_group(context.bot_data, chat.id, "exe_removed_group", user=user_mention, reason=scan_reason)
-    await safe_send_message(context, chat.id, group_notice)
+    settings = get_group_settings(context.bot_data, chat.id)
+    if not settings.get("silent_mode", False):
+        group_notice = tr_group(context.bot_data, chat.id, "exe_removed_group", user=user_mention, reason=scan_reason)
+        await safe_send_message(context, chat.id, group_notice)
 
     ikey = incident_key(chat.id, sender_id, message.message_id)
     async with BOT_DATA_LOCK:
@@ -1731,6 +2198,7 @@ async def post_init(application: Application) -> None:
                 ("start", "Choose language and setup"),
                 ("help", "Show help"),
                 ("status", "Check bot status in a group"),
+                ("settings", "Open dynamic group settings"),
                 ("admins", "Show admin alert status in a group"),
                 ("scanner", "Show scanner settings"),
                 ("scanname", "Test a suspicious filename"),
@@ -1778,11 +2246,15 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("admins", admins_command))
     app.add_handler(CommandHandler("scanner", scanner_command))
     app.add_handler(CommandHandler("scanname", scanname_command))
     app.add_handler(CommandHandler("memory", memory_command))
     app.add_handler(CallbackQueryHandler(lang_callback, pattern=r"^lang_(en|km)$"))
+    app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups|help)$"))
+    app.add_handler(CallbackQueryHandler(group_dashboard_callback, pattern=r"^grp:-?\d+$"))
+    app.add_handler(CallbackQueryHandler(group_settings_callback, pattern=r"^gset:-?\d+:(protection|strictness|silent)$"))
     app.add_handler(CallbackQueryHandler(check_perm_callback, pattern=r"^check_perm$"))
     app.add_handler(CallbackQueryHandler(action_callback, pattern=r"^act:(ban|warn|ignore):.+$"))
     app.add_handler(ChatMemberHandler(my_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER))
