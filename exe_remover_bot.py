@@ -129,6 +129,25 @@ REDIS_AUTOSAVE_MIN_INTERVAL_SECONDS = _env_float("REDIS_AUTOSAVE_MIN_INTERVAL_SE
 REDIS_STATE_SIGNING_SECRET = _env_str("REDIS_STATE_SIGNING_SECRET")
 REDIS_LEGACY_PICKLE_LOAD_ENABLED = _env_bool("REDIS_LEGACY_PICKLE_LOAD_ENABLED", False)
 
+# Optional Supabase persistence. This stores the same durable bot_data snapshot
+# as Redis, but in a Supabase/Postgres JSONB row. Redis/local pickle remain
+# safe fallbacks when Supabase is disabled or temporarily unavailable.
+SUPABASE_URL = _env_str("SUPABASE_URL").rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = (
+    _env_str("SUPABASE_SERVICE_ROLE_KEY")
+    or _env_str("SUPABASE_SECRET_KEY")
+    or _env_str("SUPABASE_KEY")
+)
+SUPABASE_ENABLED = _env_bool("SUPABASE_ENABLED", bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY))
+SUPABASE_TABLE = _env_str("SUPABASE_TABLE", "bot_state")
+SUPABASE_STATE_KEY = _env_str("SUPABASE_STATE_KEY", f"{REDIS_PREFIX}:state")
+SUPABASE_TIMEOUT_SECONDS = _env_float("SUPABASE_TIMEOUT_SECONDS", 10.0, min_value=1.0)
+SUPABASE_AUTOSAVE_MIN_INTERVAL_SECONDS = _env_float(
+    "SUPABASE_AUTOSAVE_MIN_INTERVAL_SECONDS",
+    REDIS_AUTOSAVE_MIN_INTERVAL_SECONDS,
+    min_value=0.0,
+)
+
 
 MAX_CONCURRENT_UPDATES = _env_int("MAX_CONCURRENT_UPDATES", 8, min_value=1, max_value=64)
 TELEGRAM_CONNECTION_POOL_SIZE = _env_int("TELEGRAM_CONNECTION_POOL_SIZE", 32, min_value=8, max_value=256)
@@ -227,6 +246,10 @@ REDIS_CLIENT: Any | None = None
 REDIS_AVAILABLE = False
 REDIS_LAST_SAVE_MONOTONIC = 0.0
 REDIS_LAST_SAVE_UTC = "never"
+SUPABASE_CLIENT: httpx.AsyncClient | None = None
+SUPABASE_AVAILABLE = False
+SUPABASE_LAST_SAVE_MONOTONIC = 0.0
+SUPABASE_LAST_SAVE_UTC = "never"
 
 
 @dataclass(slots=True)
@@ -324,7 +347,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "/admins — See group admins and alert readiness\n"
             "/scanner — Show scanner settings\n"
             "/scanname &lt;filename&gt; — Test a filename\n"
-            "/memory — Show Redis/user memory status"
+            "/memory — Show Supabase/Redis/user memory status"
         ),
         "status_ok": "✅ Everything is running correctly. I can delete blocked files and alert admins.",
         "status_no": "❌ I’m inactive here because I’m not admin or I don’t have <b>Delete Messages</b> permission.",
@@ -350,11 +373,13 @@ TEXTS: dict[str, dict[str, str]] = {
         "memory_status": (
             "🧠 <b>Bot Memory</b>\n"
             "Backend: <code>{backend}</code>\n"
+            "Supabase: <code>{supabase}</code>\n"
             "Redis: <code>{redis}</code>\n"
             "Known users: <code>{users}</code>\n"
             "Saved groups: <code>{groups}</code>\n"
             "Open incidents: <code>{incidents}</code>\n"
-            "Last Redis save: <code>{last_save}</code>"
+            "Last Supabase save: <code>{supabase_last_save}</code>\n"
+            "Last Redis save: <code>{redis_last_save}</code>"
         ),
         "unknown_error": "Something went wrong. Please try again.",
     },
@@ -424,7 +449,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "/admins — មើលស្ថានភាព Admin ទទួល Alert\n"
             "/scanner — មើលការកំណត់ Scanner\n"
             "/scanname &lt;filename&gt; — សាកល្បងឈ្មោះឯកសារ\n"
-            "/memory — មើលស្ថានភាព Redis/User memory"
+            "/memory — មើលស្ថានភាព Supabase/Redis/User memory"
         ),
         "status_ok": "✅ ដំណើរការត្រឹមត្រូវ។ ខ្ញុំអាចលុបឯកសារហាមឃាត់ និងរាយការណ៍ Admin បាន។",
         "status_no": "❌ ខ្ញុំមិនដំណើរការនៅទីនេះទេ ព្រោះមិនមែនជា Admin ឬមិនមានសិទ្ធិ <b>Delete Messages</b>។",
@@ -450,11 +475,13 @@ TEXTS: dict[str, dict[str, str]] = {
         "memory_status": (
             "🧠 <b>Bot Memory</b>\n"
             "Backend: <code>{backend}</code>\n"
+            "Supabase: <code>{supabase}</code>\n"
             "Redis: <code>{redis}</code>\n"
             "អ្នកប្រើប្រាស់ដែលបានចងចាំ: <code>{users}</code>\n"
             "ក្រុមដែលបានរក្សាទុក: <code>{groups}</code>\n"
             "ករណីកំពុងបើក: <code>{incidents}</code>\n"
-            "Redis save ចុងក្រោយ: <code>{last_save}</code>"
+            "Supabase save ចុងក្រោយ: <code>{supabase_last_save}</code>\n"
+            "Redis save ចុងក្រោយ: <code>{redis_last_save}</code>"
         ),
         "unknown_error": "មានបញ្ហាមួយកើតឡើង។ សូមព្យាយាមម្តងទៀត។",
     },
@@ -681,13 +708,30 @@ def redis_configured() -> bool:
 
 
 def storage_backend_label() -> str:
+    backends: list[str] = []
+    if SUPABASE_AVAILABLE:
+        backends.append("supabase")
+    elif SUPABASE_ENABLED:
+        if not SUPABASE_URL:
+            backends.append("supabase-offline:url-missing")
+        elif not SUPABASE_SERVICE_ROLE_KEY:
+            backends.append("supabase-offline:key-missing")
+        else:
+            backends.append("supabase-offline")
+
     if REDIS_AVAILABLE:
-        return "redis+local" if LOCAL_PERSISTENCE_ENABLED else "redis"
-    if REDIS_ENABLED and not REDIS_URL:
-        return "local (REDIS_URL missing)"
-    if REDIS_ENABLED and redis_async is None:
-        return "local (redis package missing)"
-    return "local"
+        backends.append("redis")
+    elif REDIS_ENABLED:
+        if not REDIS_URL:
+            backends.append("redis-offline:url-missing")
+        elif redis_async is None:
+            backends.append("redis-offline:package-missing")
+        else:
+            backends.append("redis-offline")
+
+    if LOCAL_PERSISTENCE_ENABLED:
+        backends.append("local")
+    return "+".join(backends) if backends else "memory-only"
 
 
 def export_bot_data_for_storage(bot_data: dict[str, Any]) -> dict[str, Any]:
@@ -972,12 +1016,15 @@ async def save_bot_data_to_redis(
 
 
 async def persist_context_memory(
-    context: ContextTypes.DEFAULT_TYPE,
+    context: Any,
     *,
     reason: str,
     force: bool = False,
     caller_holds_lock: bool = False,
 ) -> None:
+    # Fan out durable state saves. Every existing handler can keep calling this
+    # one function; Redis, Supabase, and local PicklePersistence stay decoupled.
+    await save_bot_data_to_supabase(context.bot_data, reason=reason, force=force, caller_holds_lock=caller_holds_lock)
     await save_bot_data_to_redis(context.bot_data, reason=reason, force=force, caller_holds_lock=caller_holds_lock)
 
 
@@ -986,10 +1033,183 @@ async def close_redis_memory() -> None:
     if REDIS_CLIENT is not None:
         try:
             await REDIS_CLIENT.aclose()
-        except Exception as exc:
+        except Exception:
             logger.exception("Redis close failed", exc_info=True)
     REDIS_CLIENT = None
     REDIS_AVAILABLE = False
+
+
+# ─────────────────────────────────────────────────────────────
+# SUPABASE MEMORY / PERSISTENCE HELPERS
+# ─────────────────────────────────────────────────────────────
+
+
+def supabase_configured() -> bool:
+    return bool(SUPABASE_ENABLED and SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+
+
+def _valid_supabase_table_name(table_name: str) -> str:
+    table = (table_name or "bot_state").strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table):
+        raise RuntimeError("SUPABASE_TABLE must contain only letters, numbers, and underscores, and cannot start with a number.")
+    return table
+
+
+def _supabase_rest_url(path: str = "") -> str:
+    base = SUPABASE_URL.rstrip("/")
+    if not base:
+        raise RuntimeError("SUPABASE_URL is missing.")
+    if not base.endswith("/rest/v1"):
+        base = f"{base}/rest/v1"
+    return f"{base}/{path.lstrip('/')}" if path else base
+
+
+def _supabase_headers(*, prefer: str | None = None) -> dict[str, str]:
+    key = SUPABASE_SERVICE_ROLE_KEY
+    if not key:
+        raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY is missing.")
+    headers = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    if prefer:
+        headers["Prefer"] = prefer
+    return headers
+
+
+async def init_supabase_memory(application: Application) -> None:
+    """Connect to Supabase REST and hydrate bot_data from one JSONB state row.
+
+    Supabase stores the same JSON-safe payload as Redis. Use a service-role key
+    on the server side, or configure RLS policies that allow this bot to read
+    and upsert the configured state row.
+    """
+    global SUPABASE_CLIENT, SUPABASE_AVAILABLE
+
+    if not SUPABASE_ENABLED:
+        logger.info("Supabase memory disabled by SUPABASE_ENABLED=false.")
+        return
+    if not SUPABASE_URL:
+        logger.warning("SUPABASE_URL is not set. Supabase memory disabled.")
+        return
+    if not SUPABASE_SERVICE_ROLE_KEY:
+        logger.warning("SUPABASE_SERVICE_ROLE_KEY is not set. Supabase memory disabled.")
+        return
+
+    try:
+        table = _valid_supabase_table_name(SUPABASE_TABLE)
+        SUPABASE_CLIENT = httpx.AsyncClient(timeout=SUPABASE_TIMEOUT_SECONDS)
+        response = await SUPABASE_CLIENT.get(
+            _supabase_rest_url(table),
+            headers=_supabase_headers(),
+            params={
+                "select": "payload",
+                "state_key": f"eq.{SUPABASE_STATE_KEY}",
+                "limit": "1",
+            },
+        )
+        response.raise_for_status()
+        SUPABASE_AVAILABLE = True
+        logger.info("Supabase memory connected. table=%s key=%s", table, SUPABASE_STATE_KEY)
+
+        rows = response.json()
+        if isinstance(rows, list) and rows:
+            payload = rows[0].get("payload") if isinstance(rows[0], dict) else None
+            if isinstance(payload, dict):
+                async with BOT_DATA_LOCK:
+                    merge_loaded_bot_data(application.bot_data, payload)
+                    sanitize_bot_data_in_place(application.bot_data)
+                logger.info(
+                    "Loaded Supabase memory: users=%s groups=%s incidents=%s",
+                    len(application.bot_data.get("known_users", {})),
+                    len(application.bot_data.get("group_state", {})),
+                    len(application.bot_data.get("incidents", {})),
+                )
+        else:
+            logger.info("No Supabase state row found yet; it will be created on the next save.")
+    except httpx.HTTPStatusError as exc:
+        SUPABASE_AVAILABLE = False
+        logger.exception(
+            "Supabase memory unavailable HTTP %s. Check table, key, and RLS policy.",
+            exc.response.status_code if exc.response else "unknown",
+            exc_info=True,
+        )
+        await close_supabase_memory()
+    except Exception:
+        SUPABASE_AVAILABLE = False
+        logger.exception("Supabase memory unavailable; other persistence fallbacks remain active", exc_info=True)
+        await close_supabase_memory()
+
+
+async def save_bot_data_to_supabase(
+    bot_data: dict[str, Any],
+    *,
+    reason: str = "manual",
+    force: bool = False,
+    caller_holds_lock: bool = False,
+) -> bool:
+    """Upsert durable bot memory into Supabase without blocking handlers."""
+    global SUPABASE_LAST_SAVE_MONOTONIC, SUPABASE_LAST_SAVE_UTC
+
+    if not (SUPABASE_AVAILABLE and SUPABASE_CLIENT is not None):
+        return False
+
+    now = time.monotonic()
+    if not force and SUPABASE_AUTOSAVE_MIN_INTERVAL_SECONDS > 0:
+        if now - SUPABASE_LAST_SAVE_MONOTONIC < SUPABASE_AUTOSAVE_MIN_INTERVAL_SECONDS:
+            return False
+
+    try:
+        if caller_holds_lock:
+            payload = export_bot_data_for_storage(bot_data)
+        else:
+            async with BOT_DATA_LOCK:
+                payload = export_bot_data_for_storage(bot_data)
+        row = {
+            "state_key": SUPABASE_STATE_KEY,
+            "payload": _json_safe(payload),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception:
+        logger.exception("Supabase memory snapshot failed reason=%s", reason, exc_info=True)
+        return False
+
+    try:
+        table = _valid_supabase_table_name(SUPABASE_TABLE)
+        response = await SUPABASE_CLIENT.post(
+            _supabase_rest_url(table),
+            headers=_supabase_headers(prefer="resolution=merge-duplicates,return=minimal"),
+            params={"on_conflict": "state_key"},
+            json=row,
+        )
+        response.raise_for_status()
+        SUPABASE_LAST_SAVE_MONOTONIC = time.monotonic()
+        SUPABASE_LAST_SAVE_UTC = now_utc_str()
+        logger.debug("Saved Supabase memory reason=%s", reason)
+        return True
+    except httpx.HTTPStatusError as exc:
+        logger.exception(
+            "Supabase memory save failed HTTP %s reason=%s",
+            exc.response.status_code if exc.response else "unknown",
+            reason,
+            exc_info=True,
+        )
+        return False
+    except Exception:
+        logger.exception("Supabase memory save failed reason=%s", reason, exc_info=True)
+        return False
+
+
+async def close_supabase_memory() -> None:
+    global SUPABASE_CLIENT, SUPABASE_AVAILABLE
+    if SUPABASE_CLIENT is not None:
+        try:
+            await SUPABASE_CLIENT.aclose()
+        except Exception:
+            logger.exception("Supabase close failed", exc_info=True)
+    SUPABASE_CLIENT = None
+    SUPABASE_AVAILABLE = False
 
 
 # ─────────────────────────────────────────────────────────────
@@ -3081,7 +3301,7 @@ async def cleanup_runtime_caches(context: ContextTypes.DEFAULT_TYPE) -> None:
                 INCIDENT_LOCKS.pop(ikey, None)
 
 
-async def periodic_redis_save(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def periodic_memory_save(context: ContextTypes.DEFAULT_TYPE) -> None:
     await persist_context_memory(context, reason="periodic", force=True)
 
 
@@ -3602,11 +3822,13 @@ def memory_status_text(bot_data: dict[str, Any], user_id: int | None) -> str:
         user_id,
         "memory_status",
         backend=h(storage_backend_label()),
+        supabase="connected" if SUPABASE_AVAILABLE else ("configured but offline" if SUPABASE_ENABLED else "disabled"),
         redis="connected" if REDIS_AVAILABLE else ("configured but offline" if REDIS_ENABLED else "disabled"),
         users=len(known_users),
         groups=len(group_state),
         incidents=len(incidents),
-        last_save=h(REDIS_LAST_SAVE_UTC),
+        supabase_last_save=h(SUPABASE_LAST_SAVE_UTC),
+        redis_last_save=h(REDIS_LAST_SAVE_UTC),
     )
 
 
@@ -3681,7 +3903,11 @@ async def post_init(application: Application) -> None:
     BOT_ID = int(me.id)
     BOT_USERNAME = me.username or ""
     logger.info("Bot initialized as @%s id=%s", BOT_USERNAME, BOT_ID)
+    # Load Redis first, then Supabase. This lets an existing Redis deployment
+    # migrate into Supabase automatically when Supabase has no row yet, while
+    # Supabase can still override stale Redis if both already contain data.
     await init_redis_memory(application)
+    await init_supabase_memory(application)
     async with BOT_DATA_LOCK:
         sanitize_bot_data_in_place(application.bot_data)
         await persist_context_memory(application, reason="state_sanitized_startup", force=True, caller_holds_lock=True)
@@ -3696,7 +3922,7 @@ async def post_init(application: Application) -> None:
                 ("admins", "Show admin alert status in a group"),
                 ("scanner", "Show scanner settings"),
                 ("scanname", "Test a suspicious filename"),
-                ("memory", "Show Redis/user memory status"),
+                ("memory", "Show Supabase/Redis/user memory status"),
                 ("debug", "Show guarded diagnostic counters"),
             ]
         )
@@ -3706,7 +3932,8 @@ async def post_init(application: Application) -> None:
 
 async def post_shutdown(application: Application) -> None:
     global KEEP_AWAKE_CLIENT
-    await save_bot_data_to_redis(application.bot_data, reason="shutdown", force=True)
+    await persist_context_memory(application, reason="shutdown", force=True)
+    await close_supabase_memory()
     await close_redis_memory()
     if KEEP_AWAKE_CLIENT is not None:
         await KEEP_AWAKE_CLIENT.aclose()
@@ -3731,6 +3958,7 @@ async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"Admin cache: <code>{admin_cache_count}</code>\n"
         f"Bot perm cache: <code>{bot_perm_cache_count}</code>\n"
         f"Chat meta cache: <code>{chat_meta_count}</code>\n"
+        f"Supabase: <code>{'connected' if SUPABASE_AVAILABLE else 'offline/disabled'}</code>\n"
         f"Redis: <code>{'connected' if REDIS_AVAILABLE else 'offline/disabled'}</code>"
     )
     await safe_reply(update, text)
@@ -3786,8 +4014,8 @@ def build_application() -> Application:
     if app.job_queue:
         app.job_queue.run_repeating(clean_old_incidents, interval=3600, first=30, name="clean_old_incidents")
         app.job_queue.run_repeating(cleanup_runtime_caches, interval=600, first=600, name="cleanup_runtime_caches")
-        if REDIS_ENABLED:
-            app.job_queue.run_repeating(periodic_redis_save, interval=60, first=60, name="periodic_redis_save")
+        if REDIS_ENABLED or SUPABASE_ENABLED:
+            app.job_queue.run_repeating(periodic_memory_save, interval=60, first=60, name="periodic_memory_save")
 
         default_keep_awake = bool(WEBHOOK_BASE_URL and (RENDER_EXTERNAL_URL or BOT_MODE == "WEBHOOK"))
         if _env_bool("KEEP_AWAKE_ENABLED", default_keep_awake):
