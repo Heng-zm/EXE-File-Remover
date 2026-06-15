@@ -559,13 +559,13 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
             "➕ <b>Add delete formats</b>\n\n"
             "Send extension names separated by spaces or commas.\n"
             "Example: <code>.apk .zip .pdf</code>\n\n"
-            "Send <code>/cancel</code> to stop."
+            "Tap <b>Back</b> or <b>Home</b> to cancel."
         ),
         "formats_prompt_edit": (
             "✏️ <b>Edit delete format list</b>\n\n"
             "Send the complete new list. Old custom formats will be replaced.\n"
             "Example: <code>.apk .zip .pdf</code>\n\n"
-            "Send <code>/cancel</code> to stop."
+            "Tap <b>Back</b> or <b>Home</b> to cancel."
         ),
         "formats_saved": "✅ Delete format list updated.",
         "formats_removed": "✅ Removed <code>{ext}</code> from delete formats.",
@@ -649,13 +649,13 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
             "➕ <b>បន្ថែម delete formats</b>\n\n"
             "ផ្ញើ extension ដោយបំបែកជាចន្លោះ ឬ comma។\n"
             "ឧទាហរណ៍: <code>.apk .zip .pdf</code>\n\n"
-            "ផ្ញើ <code>/cancel</code> ដើម្បីបោះបង់។"
+            "ចុច <b>ត្រឡប់ក្រោយ</b> ឬ <b>Home</b> ដើម្បីបោះបង់។"
         ),
         "formats_prompt_edit": (
             "✏️ <b>កែបញ្ជី delete formats</b>\n\n"
             "ផ្ញើបញ្ជីថ្មីទាំងមូល។ បញ្ជីចាស់នឹងត្រូវជំនួស។\n"
             "ឧទាហរណ៍: <code>.apk .zip .pdf</code>\n\n"
-            "ផ្ញើ <code>/cancel</code> ដើម្បីបោះបង់។"
+            "ចុច <b>ត្រឡប់ក្រោយ</b> ឬ <b>Home</b> ដើម្បីបោះបង់។"
         ),
         "formats_saved": "✅ បានកែបញ្ជី delete formats រួចរាល់។",
         "formats_removed": "✅ បានដក <code>{ext}</code> ចេញពី delete formats។",
@@ -675,6 +675,135 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
     },
 }
 for _lang, _items in EXTRA_TEXTS.items():
+    TEXTS.setdefault(_lang, {}).update(_items)
+
+
+# ─────────────────────────────────────────────────────────────
+# BUTTON-ONLY UX + DEVELOPER DASHBOARD TEXT
+# Commands still exist internally for Telegram deep-link/fallback handling, but
+# the public interface is button-first and the Telegram command menu is hidden
+# during post_init().
+# ─────────────────────────────────────────────────────────────
+
+BUTTON_ONLY_TEXTS: dict[str, dict[str, str]] = {
+    "en": {
+        "home_title": (
+            "🛡️ <b>EXE Remover Bot</b>\n\n"
+            "Status: <b>Online</b>\n"
+            "Use the buttons below to manage everything. No commands are needed."
+        ),
+        "help": (
+            "💡 <b>How to use this bot</b>\n\n"
+            "Use the buttons on the dashboard to add groups, check permissions, change protection settings, "
+            "manage delete formats, and refresh status.\n\n"
+            "Group admins can open settings from the private dashboard. Developers can open the developer dashboard "
+            "to review users, groups, storage, and bot health."
+        ),
+        "btn_developer": "🧑‍💻 Developer Dashboard",
+        "btn_dev_users": "👤 Bot Users",
+        "btn_dev_groups": "💬 Bot Groups",
+        "btn_dev_memory": "🧠 Memory / Storage",
+        "btn_next": "Next ➡️",
+        "btn_prev": "⬅️ Prev",
+        "dev_only": "❌ <b>Developer only.</b> Add your Telegram ID to <code>BOT_OWNER_IDS</code> to open this dashboard.",
+        "dev_title": (
+            "🧑‍💻 <b>Developer Dashboard</b>\n\n"
+            "Users: <code>{users}</code>\n"
+            "Groups: <code>{groups}</code>\n"
+            "Open incidents: <code>{incidents}</code>\n"
+            "Admin cache: <code>{admin_cache}</code>\n"
+            "Bot permission cache: <code>{bot_perm_cache}</code>\n"
+            "Chat metadata cache: <code>{chat_meta}</code>\n"
+            "Supabase: <code>{supabase}</code>\n"
+            "Redis: <code>{redis}</code>\n"
+            "Backend: <code>{backend}</code>"
+        ),
+        "dev_users_title": "👤 <b>Bot Users</b>\nPage <code>{page}</code>/<code>{pages}</code> · Total <code>{total}</code>\n\nTap a user to view details.",
+        "dev_users_empty": "👤 <b>Bot Users</b>\n\nNo users are saved yet.",
+        "dev_user_detail": (
+            "👤 <b>User Detail</b>\n\n"
+            "Name: <b>{name}</b>\n"
+            "Username: <code>{username}</code>\n"
+            "User ID: <code>{user_id}</code>\n"
+            "Language: <code>{lang}</code>\n"
+            "Groups linked: <code>{groups_count}</code>\n"
+            "First seen: <code>{first_seen}</code>\n"
+            "Last seen: <code>{last_seen}</code>"
+        ),
+        "dev_groups_title": "💬 <b>Bot Groups</b>\nTotal <code>{total}</code>\n\nTap a group to open settings.",
+        "dev_groups_empty": "💬 <b>Bot Groups</b>\n\nNo groups are saved yet.",
+        "dev_memory_title": (
+            "🧠 <b>Memory / Storage</b>\n\n"
+            "Backend: <code>{backend}</code>\n"
+            "Supabase: <code>{supabase}</code>\n"
+            "Redis: <code>{redis}</code>\n"
+            "Known users: <code>{users}</code>\n"
+            "Saved groups: <code>{groups}</code>\n"
+            "Open incidents: <code>{incidents}</code>\n"
+            "Last Supabase save: <code>{supabase_last_save}</code>\n"
+            "Last Redis save: <code>{redis_last_save}</code>"
+        ),
+    },
+    "km": {
+        "home_title": (
+            "🛡️ <b>EXE Remover Bot</b>\n\n"
+            "ស្ថានភាព: <b>Online</b>\n"
+            "ប្រើប៊ូតុងខាងក្រោមដើម្បីគ្រប់គ្រងទាំងអស់។ មិនចាំបាច់ប្រើ command ទេ។"
+        ),
+        "help": (
+            "💡 <b>របៀបប្រើ Bot</b>\n\n"
+            "ប្រើប៊ូតុងលើ dashboard ដើម្បីបន្ថែមក្រុម ពិនិត្យសិទ្ធិ កែការការពារ "
+            "គ្រប់គ្រង delete formats និង refresh status។\n\n"
+            "Admin ក្រុមអាចបើក settings ពី private dashboard។ Developer អាចបើក developer dashboard "
+            "ដើម្បីមើល users, groups, storage និងស្ថានភាព bot។"
+        ),
+        "btn_developer": "🧑‍💻 Developer Dashboard",
+        "btn_dev_users": "👤 អ្នកប្រើ Bot",
+        "btn_dev_groups": "💬 ក្រុម Bot",
+        "btn_dev_memory": "🧠 Memory / Storage",
+        "btn_next": "បន្ទាប់ ➡️",
+        "btn_prev": "⬅️ ថយក្រោយ",
+        "dev_only": "❌ <b>សម្រាប់ Developer ប៉ុណ្ណោះ។</b> សូមបន្ថែម Telegram ID របស់អ្នកក្នុង <code>BOT_OWNER_IDS</code>។",
+        "dev_title": (
+            "🧑‍💻 <b>Developer Dashboard</b>\n\n"
+            "Users: <code>{users}</code>\n"
+            "Groups: <code>{groups}</code>\n"
+            "Open incidents: <code>{incidents}</code>\n"
+            "Admin cache: <code>{admin_cache}</code>\n"
+            "Bot permission cache: <code>{bot_perm_cache}</code>\n"
+            "Chat metadata cache: <code>{chat_meta}</code>\n"
+            "Supabase: <code>{supabase}</code>\n"
+            "Redis: <code>{redis}</code>\n"
+            "Backend: <code>{backend}</code>"
+        ),
+        "dev_users_title": "👤 <b>អ្នកប្រើ Bot</b>\nPage <code>{page}</code>/<code>{pages}</code> · Total <code>{total}</code>\n\nចុចលើ user ដើម្បីមើលព័ត៌មានលម្អិត។",
+        "dev_users_empty": "👤 <b>អ្នកប្រើ Bot</b>\n\nមិនទាន់មាន user បានរក្សាទុកទេ។",
+        "dev_user_detail": (
+            "👤 <b>User Detail</b>\n\n"
+            "ឈ្មោះ: <b>{name}</b>\n"
+            "Username: <code>{username}</code>\n"
+            "User ID: <code>{user_id}</code>\n"
+            "ភាសា: <code>{lang}</code>\n"
+            "Groups linked: <code>{groups_count}</code>\n"
+            "First seen: <code>{first_seen}</code>\n"
+            "Last seen: <code>{last_seen}</code>"
+        ),
+        "dev_groups_title": "💬 <b>ក្រុម Bot</b>\nTotal <code>{total}</code>\n\nចុចលើក្រុមដើម្បីបើក settings។",
+        "dev_groups_empty": "💬 <b>ក្រុម Bot</b>\n\nមិនទាន់មានក្រុមបានរក្សាទុកទេ។",
+        "dev_memory_title": (
+            "🧠 <b>Memory / Storage</b>\n\n"
+            "Backend: <code>{backend}</code>\n"
+            "Supabase: <code>{supabase}</code>\n"
+            "Redis: <code>{redis}</code>\n"
+            "Known users: <code>{users}</code>\n"
+            "Saved groups: <code>{groups}</code>\n"
+            "Open incidents: <code>{incidents}</code>\n"
+            "Last Supabase save: <code>{supabase_last_save}</code>\n"
+            "Last Redis save: <code>{redis_last_save}</code>"
+        ),
+    },
+}
+for _lang, _items in BUTTON_ONLY_TEXTS.items():
     TEXTS.setdefault(_lang, {}).update(_items)
 
 DEFAULT_GROUP_SETTINGS: dict[str, Any] = {
@@ -2540,16 +2669,19 @@ async def group_private_settings_url(context: ContextTypes.DEFAULT_TYPE, chat_id
 async def dashboard_home_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> InlineKeyboardMarkup:
     _, username = await get_bot_identity(context.bot)
     add_url = f"https://t.me/{username}?startgroup=add" if username else "https://t.me/"
-    return InlineKeyboardMarkup(
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_groups"), callback_data="nav:groups")],
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=add_url)],
+    ]
+    if int(user_id) in BOT_OWNER_IDS:
+        rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_developer"), callback_data="dev:home")])
+    rows.append(
         [
-            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_groups"), callback_data="nav:groups")],
-            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=add_url)],
-            [
-                InlineKeyboardButton(tr(context.bot_data, user_id, "btn_help"), callback_data="nav:help"),
-                InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh"), callback_data="nav:home"),
-            ],
+            InlineKeyboardButton(tr(context.bot_data, user_id, "btn_help"), callback_data="nav:help"),
+            InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh"), callback_data="nav:home"),
         ]
     )
+    return InlineKeyboardMarkup(rows)
 
 
 def dashboard_back_home_keyboard(bot_data: dict[str, Any], user_id: int) -> InlineKeyboardMarkup:
@@ -2759,6 +2891,263 @@ async def render_format_manager_panel(
     await send_or_edit_panel(update, text, keyboard)
 
 
+# ─────────────────────────────────────────────────────────────
+# DEVELOPER DASHBOARD - BUTTON ONLY
+# ─────────────────────────────────────────────────────────────
+
+DEV_USERS_PAGE_SIZE = 8
+DEV_GROUPS_PAGE_SIZE = 10
+
+
+def _developer_keyboard(bot_data: dict[str, Any], user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_users"), callback_data="dev:users:0")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_groups"), callback_data="dev:groups:0")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_memory"), callback_data="dev:memory")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_refresh"), callback_data="dev:refresh")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
+        ]
+    )
+
+
+def _developer_back_keyboard(bot_data: dict[str, Any], user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data="dev:home")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
+        ]
+    )
+
+
+def _dev_is_owner(user_id: int) -> bool:
+    return int(user_id) in BOT_OWNER_IDS
+
+
+def _format_saved_ms(value: Any) -> str:
+    try:
+        ms = int(value or 0)
+    except (TypeError, ValueError):
+        ms = 0
+    if ms <= 0:
+        return "never"
+    try:
+        return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except Exception:
+        return "invalid"
+
+
+def _safe_page(raw: str | None, *, default: int = 0) -> int:
+    try:
+        return max(0, int(raw if raw is not None else default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _dev_user_items(bot_data: dict[str, Any]) -> list[tuple[int, dict[str, Any]]]:
+    known_users = bot_data.get("known_users", {})
+    user_state = bot_data.get("user_state", {})
+    users: dict[int, dict[str, Any]] = {}
+
+    if isinstance(known_users, dict):
+        for raw_uid, raw_profile in known_users.items():
+            try:
+                uid = int(raw_uid)
+            except (TypeError, ValueError):
+                continue
+            profile = dict(raw_profile) if isinstance(raw_profile, dict) else {}
+            profile.setdefault("id", uid)
+            users[uid] = profile
+
+    if isinstance(user_state, dict):
+        for raw_uid, raw_state in user_state.items():
+            try:
+                uid = int(raw_uid)
+            except (TypeError, ValueError):
+                continue
+            state = raw_state if isinstance(raw_state, dict) else {}
+            profile = users.setdefault(uid, {"id": uid})
+            if state:
+                profile.setdefault("lang", state.get("lang", "en"))
+                profile.setdefault("first_seen_ms", state.get("first_seen_ms", 0))
+                profile.setdefault("last_seen_ms", state.get("last_seen_ms", 0))
+
+    def sort_key(item: tuple[int, dict[str, Any]]) -> int:
+        profile = item[1]
+        try:
+            return int(profile.get("last_seen_ms") or profile.get("first_seen_ms") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    return sorted(users.items(), key=sort_key, reverse=True)
+
+
+def _dev_group_items(bot_data: dict[str, Any]) -> list[tuple[int, str]]:
+    group_state = bot_data.get("group_state", {})
+    chat_ids: set[int] = set()
+    if isinstance(group_state, dict):
+        for raw_chat_id in group_state.keys():
+            try:
+                chat_ids.add(int(raw_chat_id))
+            except (TypeError, ValueError):
+                continue
+    chat_meta = bot_data.get("chat_meta_cache", {})
+    if isinstance(chat_meta, dict):
+        for raw_chat_id in chat_meta.keys():
+            try:
+                chat_ids.add(int(raw_chat_id))
+            except (TypeError, ValueError):
+                continue
+    return sorted((chat_id, get_chat_title_from_state(bot_data, chat_id)) for chat_id in chat_ids)
+
+
+async def render_developer_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    async with BOT_DATA_LOCK:
+        users = len(_dev_user_items(context.bot_data))
+        groups = len(_dev_group_items(context.bot_data))
+        incidents = len(context.bot_data.get("incidents", {})) if isinstance(context.bot_data.get("incidents", {}), dict) else 0
+        admin_cache = len(context.bot_data.get("admin_ids_cache", {})) if isinstance(context.bot_data.get("admin_ids_cache", {}), dict) else 0
+        bot_perm_cache = len(context.bot_data.get("bot_member_cache", {})) if isinstance(context.bot_data.get("bot_member_cache", {}), dict) else 0
+        chat_meta = len(context.bot_data.get("chat_meta_cache", {})) if isinstance(context.bot_data.get("chat_meta_cache", {}), dict) else 0
+        text = tr(
+            context.bot_data,
+            user_id,
+            "dev_title",
+            users=users,
+            groups=groups,
+            incidents=incidents,
+            admin_cache=admin_cache,
+            bot_perm_cache=bot_perm_cache,
+            chat_meta=chat_meta,
+            supabase="connected" if SUPABASE_AVAILABLE else "offline/disabled",
+            redis="connected" if REDIS_AVAILABLE else "offline/disabled",
+            backend=h(storage_backend_label()),
+        )
+        keyboard = _developer_keyboard(context.bot_data, user_id)
+    await send_or_edit_panel(update, text, keyboard)
+
+
+async def render_developer_users_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, page: int = 0) -> None:
+    async with BOT_DATA_LOCK:
+        items = _dev_user_items(context.bot_data)
+        total = len(items)
+        if total == 0:
+            text = tr(context.bot_data, user_id, "dev_users_empty")
+            keyboard = _developer_back_keyboard(context.bot_data, user_id)
+        else:
+            pages = max(1, (total + DEV_USERS_PAGE_SIZE - 1) // DEV_USERS_PAGE_SIZE)
+            page = min(max(0, page), pages - 1)
+            start = page * DEV_USERS_PAGE_SIZE
+            page_items = items[start:start + DEV_USERS_PAGE_SIZE]
+            rows: list[list[InlineKeyboardButton]] = []
+            for uid, profile in page_items:
+                name = str(profile.get("full_name") or profile.get("username") or uid)
+                username = str(profile.get("username") or "")
+                label = f"👤 {name[:24]}" + (f" (@{username[:16]})" if username else "")
+                rows.append([InlineKeyboardButton(label[:60], callback_data=f"dev:user:{uid}")])
+            nav: list[InlineKeyboardButton] = []
+            if page > 0:
+                nav.append(InlineKeyboardButton(tr(context.bot_data, user_id, "btn_prev"), callback_data=f"dev:users:{page - 1}"))
+            if page < pages - 1:
+                nav.append(InlineKeyboardButton(tr(context.bot_data, user_id, "btn_next"), callback_data=f"dev:users:{page + 1}"))
+            if nav:
+                rows.append(nav)
+            rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_back"), callback_data="dev:home")])
+            rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")])
+            text = tr(context.bot_data, user_id, "dev_users_title", page=page + 1, pages=pages, total=total)
+            keyboard = InlineKeyboardMarkup(rows)
+    await send_or_edit_panel(update, text, keyboard)
+
+
+async def render_developer_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, target_user_id: int) -> None:
+    async with BOT_DATA_LOCK:
+        items = dict(_dev_user_items(context.bot_data))
+        profile = dict(items.get(int(target_user_id), {"id": int(target_user_id)}))
+        user_state = context.bot_data.get("user_state", {})
+        state = {}
+        if isinstance(user_state, dict):
+            raw_state = user_state.get(int(target_user_id)) or user_state.get(str(int(target_user_id)))
+            state = raw_state if isinstance(raw_state, dict) else {}
+        groups = get_groups(context.bot_data, int(target_user_id))
+        name = h(profile.get("full_name") or profile.get("username") or target_user_id)
+        username = profile.get("username") or "-"
+        lang = profile.get("lang") or state.get("lang") or "en"
+        first_seen = _format_saved_ms(profile.get("first_seen_ms") or state.get("first_seen_ms"))
+        last_seen = _format_saved_ms(profile.get("last_seen_ms") or state.get("last_seen_ms"))
+        text = tr(
+            context.bot_data,
+            user_id,
+            "dev_user_detail",
+            name=name,
+            username=h(username),
+            user_id=int(target_user_id),
+            lang=h(lang),
+            groups_count=len(groups),
+            first_seen=h(first_seen),
+            last_seen=h(last_seen),
+        )
+        rows: list[list[InlineKeyboardButton]] = []
+        for chat_id in groups[:8]:
+            title = get_chat_title_from_state(context.bot_data, chat_id)
+            rows.append([InlineKeyboardButton(f"💬 {title[:40]}", callback_data=f"grp:{chat_id}")])
+        rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_back"), callback_data="dev:users:0")])
+        rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")])
+        keyboard = InlineKeyboardMarkup(rows)
+    await send_or_edit_panel(update, text, keyboard)
+
+
+async def render_developer_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, page: int = 0) -> None:
+    async with BOT_DATA_LOCK:
+        items = _dev_group_items(context.bot_data)
+        total = len(items)
+        if total == 0:
+            text = tr(context.bot_data, user_id, "dev_groups_empty")
+            keyboard = _developer_back_keyboard(context.bot_data, user_id)
+        else:
+            pages = max(1, (total + DEV_GROUPS_PAGE_SIZE - 1) // DEV_GROUPS_PAGE_SIZE)
+            page = min(max(0, page), pages - 1)
+            start = page * DEV_GROUPS_PAGE_SIZE
+            page_items = items[start:start + DEV_GROUPS_PAGE_SIZE]
+            rows: list[list[InlineKeyboardButton]] = [
+                [InlineKeyboardButton(f"💬 {title[:42]}", callback_data=f"grp:{chat_id}")]
+                for chat_id, title in page_items
+            ]
+            nav: list[InlineKeyboardButton] = []
+            if page > 0:
+                nav.append(InlineKeyboardButton(tr(context.bot_data, user_id, "btn_prev"), callback_data=f"dev:groups:{page - 1}"))
+            if page < pages - 1:
+                nav.append(InlineKeyboardButton(tr(context.bot_data, user_id, "btn_next"), callback_data=f"dev:groups:{page + 1}"))
+            if nav:
+                rows.append(nav)
+            rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_back"), callback_data="dev:home")])
+            rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")])
+            text = tr(context.bot_data, user_id, "dev_groups_title", total=total)
+            keyboard = InlineKeyboardMarkup(rows)
+    await send_or_edit_panel(update, text, keyboard)
+
+
+async def render_developer_memory_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    async with BOT_DATA_LOCK:
+        users = len(_dev_user_items(context.bot_data))
+        groups = len(_dev_group_items(context.bot_data))
+        incidents = len(context.bot_data.get("incidents", {})) if isinstance(context.bot_data.get("incidents", {}), dict) else 0
+        text = tr(
+            context.bot_data,
+            user_id,
+            "dev_memory_title",
+            backend=h(storage_backend_label()),
+            supabase="connected" if SUPABASE_AVAILABLE else "offline/disabled",
+            redis="connected" if REDIS_AVAILABLE else "offline/disabled",
+            users=users,
+            groups=groups,
+            incidents=incidents,
+            supabase_last_save=h(SUPABASE_LAST_SAVE_UTC),
+            redis_last_save=h(REDIS_LAST_SAVE_UTC),
+        )
+        keyboard = _developer_back_keyboard(context.bot_data, user_id)
+    await send_or_edit_panel(update, text, keyboard)
+
+
 async def set_pending_format_edit(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int, mode: str) -> None:
     async with BOT_DATA_LOCK:
         state = get_user_state(context.bot_data, int(user_id))
@@ -2787,13 +3176,60 @@ async def navigation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     data = query.data or ""
     if data == "nav:home":
+        await clear_pending_format_edit(context, user_id)
         await render_home(update, context, user_id)
     elif data == "nav:groups":
+        await clear_pending_format_edit(context, user_id)
         await render_groups_panel(update, context, user_id)
     elif data == "nav:help":
+        await clear_pending_format_edit(context, user_id)
         await render_help_panel(update, context, user_id)
     else:
+        await clear_pending_format_edit(context, user_id)
         await render_home(update, context, user_id)
+
+
+async def developer_dashboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    user_id = int(query.from_user.id)
+    if not callback_is_private(query):
+        await reject_group_config_callback(query, context.bot_data, user_id)
+        return
+    await query.answer()
+    if not _dev_is_owner(user_id):
+        await safe_edit_query(query, tr(context.bot_data, user_id, "dev_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
+
+    data = query.data or "dev:home"
+    parts = data.split(":")
+    action = parts[1] if len(parts) > 1 else "home"
+
+    if action in {"home", "refresh"}:
+        await render_developer_dashboard(update, context, user_id)
+        return
+    if action == "memory":
+        await render_developer_memory_panel(update, context, user_id)
+        return
+    if action == "users":
+        page = _safe_page(parts[2] if len(parts) > 2 else "0")
+        await render_developer_users_panel(update, context, user_id, page)
+        return
+    if action == "user" and len(parts) > 2:
+        try:
+            target_user_id = int(parts[2])
+        except ValueError:
+            await render_developer_users_panel(update, context, user_id, 0)
+            return
+        await render_developer_user_detail(update, context, user_id, target_user_id)
+        return
+    if action == "groups":
+        page = _safe_page(parts[2] if len(parts) > 2 else "0")
+        await render_developer_groups_panel(update, context, user_id, page)
+        return
+
+    await render_developer_dashboard(update, context, user_id)
 
 
 async def group_dashboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3651,7 +4087,13 @@ async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TY
         msg = tr(context.bot_data, adder.id, "not_admin")
 
     try:
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, adder.id, "check_btn"), callback_data="check_perm")]])
+        kb = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton(tr(context.bot_data, adder.id, "btn_settings"), callback_data=f"grp:{chat.id}")],
+                [InlineKeyboardButton(tr(context.bot_data, adder.id, "check_btn"), callback_data="check_perm")],
+                [InlineKeyboardButton(tr(context.bot_data, adder.id, "btn_home"), callback_data="nav:home")],
+            ]
+        )
         await safe_send_message(context, adder.id, msg, reply_markup=kb)
     except Exception:
         logger.exception("Unexpected setup DM failure user_id=%s", adder.id, exc_info=True)
@@ -3913,21 +4355,14 @@ async def post_init(application: Application) -> None:
         await persist_context_memory(application, reason="state_sanitized_startup", force=True, caller_holds_lock=True)
 
     try:
-        await application.bot.set_my_commands(
-            [
-                ("start", "Choose language and setup"),
-                ("help", "Show help"),
-                ("status", "Check bot status in a group"),
-                ("settings", "Open dynamic group settings"),
-                ("admins", "Show admin alert status in a group"),
-                ("scanner", "Show scanner settings"),
-                ("scanname", "Test a suspicious filename"),
-                ("memory", "Show Supabase/Redis/user memory status"),
-                ("debug", "Show guarded diagnostic counters"),
-            ]
-        )
-    except TelegramError as exc:
-        logger.exception("Could not set bot commands", exc_info=True)
+        # Hide the Telegram slash-command menu so users manage the bot from buttons.
+        # Handlers remain registered for /start deep links and safe developer fallback.
+        try:
+            await application.bot.delete_my_commands()
+        except AttributeError:
+            await application.bot.set_my_commands([])
+    except TelegramError:
+        logger.exception("Could not clear bot command menu", exc_info=True)
 
 
 async def post_shutdown(application: Application) -> None:
@@ -4000,6 +4435,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CallbackQueryHandler(lang_callback, pattern=r"^lang_(en|km)$"))
     app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups|help)$"))
+    app.add_handler(CallbackQueryHandler(developer_dashboard_callback, pattern=r"^dev:(home|refresh|memory|users(?::\d+)?|user:-?\d+|groups(?::\d+)?)$"))
     app.add_handler(CallbackQueryHandler(group_dashboard_callback, pattern=r"^grp:-?\d+$"))
     app.add_handler(CallbackQueryHandler(group_settings_callback, pattern=r"^gset:-?\d+:(protection|strictness|silent)$"))
     app.add_handler(CallbackQueryHandler(format_manager_callback, pattern=r"^gfmt:-?\d+:(menu|add|edit|remove|clear)$"))
