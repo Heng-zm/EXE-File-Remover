@@ -161,6 +161,11 @@ SUSPICIOUS_MAGIC_SCAN_ENABLED = _env_bool("SUSPICIOUS_MAGIC_SCAN_ENABLED", True)
 SUSPICIOUS_ARCHIVE_SCAN_ENABLED = _env_bool("SUSPICIOUS_ARCHIVE_SCAN_ENABLED", True)
 SCANNER_MAX_DOWNLOAD_BYTES = _env_int("SCANNER_MAX_DOWNLOAD_BYTES", 2_000_000, min_value=0, max_value=20_000_000)
 MAX_ARCHIVE_MEMBERS_TO_SCAN = _env_int("MAX_ARCHIVE_MEMBERS_TO_SCAN", 500, min_value=1, max_value=5000)
+MAX_CUSTOM_BLOCKED_EXTENSIONS = _env_int("MAX_CUSTOM_BLOCKED_EXTENSIONS", 64, min_value=1, max_value=256)
+BOT_OWNER_IDS = tuple(
+    int(x) for x in _env_csv("BOT_OWNER_IDS", [])
+    if str(x).strip().lstrip("+-").isdigit()
+)
 
 ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
 CHAT_TYPES_GROUP = {ChatType.GROUP, ChatType.SUPERGROUP, "group", "supergroup"}
@@ -477,13 +482,16 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
             "Protection: {protection}\n"
             "Strictness: <code>{strictness}</code>\n"
             "Silent mode: <code>{silent}</code>\n"
-            "Allowed extensions: <code>{allowed}</code>\n\n"
+            "Allowed extensions: <code>{allowed}</code>\n"
+            "Extra delete formats: <code>{custom_blocked}</code>\n\n"
             "Standard blocks <code>.exe</code> and renamed Windows executables. High blocks all dangerous extensions."
         ),
         "settings_saved": "✅ Settings updated.",
         "group_linked": "✅ Group linked to your private dashboard.",
         "group_admin_only": "❌ Only group admins can open this dashboard.",
-        "settings_group_open_private": "⚙️ Manage this group in private chat:",
+        "access_denied": "❌ <b>Access denied.</b> This command is available only to bot owners or verified group admins.",
+        "settings_group_open_private": "🔒 Configuration is private-chat only. Open private chat to manage this group:",
+        "config_private_only": "🔒 Configuration updates are only available in private chat. I will not show or edit settings inside the group.",
         "protection_on": "ON",
         "protection_off": "OFF",
         "silent_on": "true",
@@ -493,6 +501,45 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "perm_ok": "✅ Delete OK",
         "perm_no": "❌ Need Delete Messages",
         "perm_unknown": "⚠️ Unknown",
+        "btn_manage_formats": "🧩 Manage delete formats",
+        "btn_add_format": "➕ Add format",
+        "btn_remove_format": "🗑 Delete format",
+        "btn_edit_formats": "✏️ Edit list",
+        "btn_clear_formats": "🧹 Clear all",
+        "formats_title": (
+            "🧩 <b>Custom delete formats</b>\n"
+            "💬 <b>{group}</b> <code>{chat_id}</code>\n\n"
+            "Current custom formats: <code>{custom_blocked}</code>\n\n"
+            "Files ending with these extensions will be deleted in this group. Example: <code>.apk</code>, <code>.zip</code>, <code>.pdf</code>."
+        ),
+        "formats_empty": "No custom delete formats yet.",
+        "formats_prompt_add": (
+            "➕ <b>Add delete formats</b>\n\n"
+            "Send extension names separated by spaces or commas.\n"
+            "Example: <code>.apk .zip .pdf</code>\n\n"
+            "Send <code>/cancel</code> to stop."
+        ),
+        "formats_prompt_edit": (
+            "✏️ <b>Edit delete format list</b>\n\n"
+            "Send the complete new list. Old custom formats will be replaced.\n"
+            "Example: <code>.apk .zip .pdf</code>\n\n"
+            "Send <code>/cancel</code> to stop."
+        ),
+        "formats_saved": "✅ Delete format list updated.",
+        "formats_removed": "✅ Removed <code>{ext}</code> from delete formats.",
+        "formats_cleared": "✅ Custom delete formats cleared.",
+        "formats_invalid": "❌ I could not find a valid extension. Send like: <code>.apk .zip .pdf</code>",
+        "formats_cancelled": "✅ Cancelled.",
+        "scanner_group_status": (
+            "\n\n⚙️ <b>This group</b>\n"
+            "Protection: <code>{protection}</code>\n"
+            "Strictness: <code>{strictness}</code>\n"
+            "Silent mode: <code>{silent}</code>\n"
+            "Allowed extensions: <code>{allowed}</code>\n"
+            "Extra delete formats: <code>{custom_blocked}</code>"
+        ),
+        "scanner_private_manage_hint": "Use the button below to manage delete formats safely in private chat.",
+        "scanner_group_private_only": "🔒 Scanner configuration is private-chat only. Open private chat to view or update this group's delete formats and protection settings.",
     },
     "km": {
         "home_title": (
@@ -525,13 +572,16 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
             "Protection: {protection}\n"
             "Strictness: <code>{strictness}</code>\n"
             "Silent mode: <code>{silent}</code>\n"
-            "Allowed extensions: <code>{allowed}</code>\n\n"
+            "Allowed extensions: <code>{allowed}</code>\n"
+            "Extra delete formats: <code>{custom_blocked}</code>\n\n"
             "Standard block <code>.exe</code> និង renamed Windows executables។ High block dangerous extensions ទាំងអស់។"
         ),
         "settings_saved": "✅ បានកែ settings រួចរាល់។",
         "group_linked": "✅ បានភ្ជាប់ក្រុមទៅ private dashboard រួច។",
         "group_admin_only": "❌ មានតែ Admin ក្នុងក្រុមប៉ុណ្ណោះអាចបើក dashboard នេះបាន។",
-        "settings_group_open_private": "⚙️ គ្រប់គ្រងក្រុមនេះក្នុង private chat:",
+        "access_denied": "❌ <b>មិនមានសិទ្ធិ។</b> Command នេះអនុញ្ញាតតែ Bot owner ឬ Admin ក្រុមដែលបាន verify ប៉ុណ្ណោះ។",
+        "settings_group_open_private": "🔒 ការកំណត់អាចកែបានតែក្នុង private chat ប៉ុណ្ណោះ។ សូមបើក private chat ដើម្បីគ្រប់គ្រងក្រុមនេះ:",
+        "config_private_only": "🔒 ការកែ configuration អនុញ្ញាតតែក្នុង private chat ប៉ុណ្ណោះ។ ខ្ញុំនឹងមិនបង្ហាញ ឬកែ settings នៅក្នុង group ទេ។",
         "protection_on": "ON",
         "protection_off": "OFF",
         "silent_on": "true",
@@ -541,9 +591,47 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "perm_ok": "✅ Delete OK",
         "perm_no": "❌ ត្រូវការ Delete Messages",
         "perm_unknown": "⚠️ មិនដឹង",
+        "btn_manage_formats": "🧩 គ្រប់គ្រង format លុប",
+        "btn_add_format": "➕ បន្ថែម format",
+        "btn_remove_format": "🗑 លុប format",
+        "btn_edit_formats": "✏️ កែបញ្ជី",
+        "btn_clear_formats": "🧹 លុបទាំងអស់",
+        "formats_title": (
+            "🧩 <b>Custom delete formats</b>\n"
+            "💬 <b>{group}</b> <code>{chat_id}</code>\n\n"
+            "Formats បច្ចុប្បន្ន: <code>{custom_blocked}</code>\n\n"
+            "ឯកសារដែលបញ្ចប់ដោយ extension ទាំងនេះ នឹងត្រូវលុបក្នុងក្រុមនេះ។ ឧទាហរណ៍: <code>.apk</code>, <code>.zip</code>, <code>.pdf</code>."
+        ),
+        "formats_empty": "មិនទាន់មាន custom delete formats ទេ។",
+        "formats_prompt_add": (
+            "➕ <b>បន្ថែម delete formats</b>\n\n"
+            "ផ្ញើ extension ដោយបំបែកជាចន្លោះ ឬ comma។\n"
+            "ឧទាហរណ៍: <code>.apk .zip .pdf</code>\n\n"
+            "ផ្ញើ <code>/cancel</code> ដើម្បីបោះបង់។"
+        ),
+        "formats_prompt_edit": (
+            "✏️ <b>កែបញ្ជី delete formats</b>\n\n"
+            "ផ្ញើបញ្ជីថ្មីទាំងមូល។ បញ្ជីចាស់នឹងត្រូវជំនួស។\n"
+            "ឧទាហរណ៍: <code>.apk .zip .pdf</code>\n\n"
+            "ផ្ញើ <code>/cancel</code> ដើម្បីបោះបង់។"
+        ),
+        "formats_saved": "✅ បានកែបញ្ជី delete formats រួចរាល់។",
+        "formats_removed": "✅ បានដក <code>{ext}</code> ចេញពី delete formats។",
+        "formats_cleared": "✅ បានសម្អាត custom delete formats រួច។",
+        "formats_invalid": "❌ ខ្ញុំរកមិនឃើញ extension ត្រឹមត្រូវទេ។ សូមផ្ញើដូចជា: <code>.apk .zip .pdf</code>",
+        "formats_cancelled": "✅ បានបោះបង់។",
+        "scanner_group_status": (
+            "\n\n⚙️ <b>ក្រុមនេះ</b>\n"
+            "Protection: <code>{protection}</code>\n"
+            "Strictness: <code>{strictness}</code>\n"
+            "Silent mode: <code>{silent}</code>\n"
+            "Allowed extensions: <code>{allowed}</code>\n"
+            "Extra delete formats: <code>{custom_blocked}</code>"
+        ),
+        "scanner_private_manage_hint": "ប្រើប៊ូតុងខាងក្រោម ដើម្បីគ្រប់គ្រង delete formats ក្នុង private chat ដោយសុវត្ថិភាព។",
+        "scanner_group_private_only": "🔒 Scanner configuration អាចមើល និងកែបានតែក្នុង private chat ប៉ុណ្ណោះ។ សូមបើក private chat ដើម្បីកែ delete formats និង protection settings របស់ក្រុមនេះ។",
     },
 }
-
 for _lang, _items in EXTRA_TEXTS.items():
     TEXTS.setdefault(_lang, {}).update(_items)
 
@@ -552,6 +640,7 @@ DEFAULT_GROUP_SETTINGS: dict[str, Any] = {
     "strictness": "standard",  # standard=.exe/PE only, high=all dangerous extensions
     "silent_mode": False,
     "allowed_extensions": [],
+    "custom_blocked_extensions": [],
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -565,6 +654,10 @@ PERSISTED_BOT_DATA_KEYS = (
     "incidents",
     "warning_counts",
     "settings",
+    # Persist lightweight caches so private dashboards can render without live API calls after restart.
+    "chat_meta_cache",
+    "admin_ids_cache",
+    "bot_member_cache",
 )
 
 
@@ -794,13 +887,36 @@ def tr_group(bot_data: dict[str, Any], chat_id: int | None, key: str, **kwargs: 
     return text.format(**kwargs) if kwargs else text
 
 
-async def remember_group(bot_data: dict[str, Any], chat_id: int, *, added_by: int | None = None, lang: str | None = None) -> None:
+async def remember_group(
+    bot_data: dict[str, Any],
+    chat_id: int,
+    *,
+    added_by: int | None = None,
+    lang: str | None = None,
+    title: str | None = None,
+    chat_type: str | None = None,
+) -> None:
+    """Persist minimal group metadata used by the private dashboard.
+
+    This avoids live context.bot.get_chat() calls when rendering the dashboard.
+    All bot_data mutations stay under BOT_DATA_LOCK.
+    """
     async with BOT_DATA_LOCK:
         state = get_group_state(bot_data, chat_id)
         if added_by is not None:
             state["added_by"] = int(added_by)
         if lang in TEXTS:
             state["lang"] = lang
+        if title:
+            state["title"] = str(title)
+            state["chat_title"] = str(title)
+            bucket = _bot_data_cache_bucket(bot_data, "chat_meta_cache")
+            bucket[str(int(chat_id))] = {
+                "id": int(chat_id),
+                "title": str(title),
+                "type": str(chat_type or ""),
+                "updated_at_ms": _cache_now_ms(),
+            }
         state["last_seen_ms"] = now_ms()
 
 
@@ -854,10 +970,50 @@ def compact_scan_name(name: str | None) -> str:
     return normalized or "Unknown"
 
 
+_SUFFIX_TOKEN_RE = re.compile(r"^[a-z0-9_+-]{1,16}$")
+
+
 def filename_suffixes(file_name: str) -> list[str]:
-    # A robust suffix parser that catches repeated suffixes like invoice.pdf.exe.zip.
-    suffixes = re.findall(r"(?<!^)\.[A-Za-z0-9_+-]{1,16}", file_name.casefold())
-    return [_normalize_extension(ext) for ext in suffixes]
+    """Return safe suffix candidates while preserving compound extensions.
+
+    Examples:
+    - archive.tar.gz -> [".tar.gz", ".gz"] instead of [".tar", ".gz"]
+    - invoice.pdf.exe.zip -> includes ".exe" and keeps the true final suffix ".zip" last
+
+    The last item is always the true final suffix when one exists. Compound
+    candidates come first so custom blocklists such as .tar.gz can match.
+    """
+    clean_name = compact_scan_name(file_name).casefold()
+    if "." not in clean_name:
+        return []
+
+    raw_parts = clean_name.split(".")
+    ext_parts = raw_parts[1:]
+    if not ext_parts or any(part == "" for part in ext_parts):
+        candidates = [f".{part}" for part in ext_parts if _SUFFIX_TOKEN_RE.fullmatch(part)]
+        return list(dict.fromkeys(_normalize_extension(ext) for ext in candidates))
+
+    ext_parts = [part for part in ext_parts if _SUFFIX_TOKEN_RE.fullmatch(part)]
+    if not ext_parts:
+        return []
+
+    final_ext = f".{ext_parts[-1]}"
+    candidates: list[str] = []
+
+    # Compound endings, excluding the final single suffix which is appended last.
+    for start in range(0, max(len(ext_parts) - 1, 0)):
+        compound = "." + ".".join(ext_parts[start:])
+        if 2 <= len(compound) <= 64:
+            candidates.append(compound)
+
+    # For long chains, include individual middle suffixes so invoice.pdf.exe.zip
+    # still catches .exe without treating .tar.gz as [".tar", ".gz"].
+    if len(ext_parts) >= 3:
+        for part in ext_parts[:-1]:
+            candidates.append(f".{part}")
+
+    candidates.append(final_ext)
+    return list(dict.fromkeys(_normalize_extension(ext) for ext in candidates))
 
 
 def describe_scan_reason(reason_code: str, details: Iterable[str]) -> str:
@@ -938,7 +1094,7 @@ def scan_file_bytes(file_name: str, mime_type: str, data: bytes) -> FileScanResu
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 names = zf.namelist()[:MAX_ARCHIVE_MEMBERS_TO_SCAN]
-        except (zipfile.BadZipFile, RuntimeError, OSError) as exc:
+        except (zipfile.BadZipFile, RuntimeError, OSError, Exception) as exc:
             logger.debug("Archive scan skipped for %r: %s", file_name, exc)
             return None
 
@@ -1111,31 +1267,229 @@ async def get_bot_identity(bot: Any) -> tuple[int, str]:
     return BOT_ID, BOT_USERNAME
 
 
-async def get_chat_admin_ids_cached(context: ContextTypes.DEFAULT_TYPE, chat_id: int, *, force: bool = False) -> list[int]:
-    now = time.monotonic()
+def _cache_now_ms() -> int:
+    # Wall-clock milliseconds survive restarts better than time.monotonic() when
+    # cache metadata is kept in bot_data / persistence.
+    return now_ms()
+
+
+def _bot_data_cache_bucket(bot_data: dict[str, Any], name: str) -> dict[str, Any]:
+    bucket = bot_data.setdefault(name, {})
+    if not isinstance(bucket, dict):
+        bucket = {}
+        bot_data[name] = bucket
+    return bucket
+
+
+async def remember_chat_meta(bot_data: dict[str, Any], chat: Any) -> None:
+    if not chat:
+        return
+    async with BOT_DATA_LOCK:
+        bucket = _bot_data_cache_bucket(bot_data, "chat_meta_cache")
+        bucket[str(int(chat.id))] = {
+            "id": int(chat.id),
+            "title": getattr(chat, "title", None) or getattr(chat, "full_name", None) or str(chat.id),
+            "type": str(getattr(chat, "type", "")),
+            "updated_at_ms": _cache_now_ms(),
+        }
+
+
+def get_chat_title_from_state(bot_data: dict[str, Any], chat_id: int) -> str:
+    meta = bot_data.get("chat_meta_cache", {})
+    if isinstance(meta, dict):
+        item = meta.get(str(chat_id)) or meta.get(chat_id)
+        if isinstance(item, dict) and item.get("title"):
+            return str(item["title"])
+    group = bot_data.get("group_state", {})
+    if isinstance(group, dict):
+        state = group.get(str(chat_id)) or group.get(chat_id)
+        if isinstance(state, dict):
+            for key in ("title", "group_name", "chat_title"):
+                if state.get(key):
+                    return str(state[key])
+    return str(chat_id)
+
+
+async def get_chat_title_cached(context: ContextTypes.DEFAULT_TYPE, chat_id: int, *, force: bool = False) -> str:
+    """Cached chat title lookup for dashboard rendering.
+
+    Dashboard code should call this instead of context.bot.get_chat().  It only
+    hits Telegram when force=True or no cached title exists yet, then stores the
+    simple metadata in bot_data so persistence can survive restarts.
+    """
+    title = get_chat_title_from_state(context.bot_data, chat_id)
+    if title != str(chat_id) and not force:
+        return title
+
+    try:
+        chat = await context.bot.get_chat(chat_id)
+        await remember_chat_meta(context.bot_data, chat)
+        return str(chat.title or chat_id)
+    except TelegramError as exc:
+        logger.info("Could not refresh chat metadata chat_id=%s: %s", chat_id, exc)
+        return title
+
+
+async def get_chat_admin_ids_from_state(bot_data: dict[str, Any], chat_id: int) -> list[int]:
+    """Read persisted admin IDs only; never calls Telegram.
+
+    Used by offline dashboard rendering and returned as a copy to avoid cache
+    mutability leaks.
+    """
+    ids, _, _ = await get_chat_admin_ids_state_snapshot(bot_data, chat_id)
+    return ids.copy()
+
+
+
+def _parse_admin_ids(raw_ids: Any) -> list[int]:
+    parsed: list[int] = []
+    if not isinstance(raw_ids, list):
+        return parsed
+    for item in raw_ids:
+        try:
+            parsed.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return parsed.copy()
+
+
+async def get_chat_admin_ids_state_snapshot(bot_data: dict[str, Any], chat_id: int) -> tuple[list[int], bool, bool]:
+    """Return (ids_copy, cache_exists, is_fresh) from durable bot_data only.
+
+    This never calls Telegram and never returns mutable cache references.
+    """
+    now_wall = _cache_now_ms()
+    async with BOT_DATA_LOCK:
+        bucket = bot_data.get("admin_ids_cache")
+        if not isinstance(bucket, dict):
+            return [], False, False
+        cached_state = bucket.get(str(int(chat_id))) or bucket.get(int(chat_id))
+        if not isinstance(cached_state, dict):
+            return [], False, False
+        ids = _parse_admin_ids(cached_state.get("ids", []))
+        try:
+            fresh = int(cached_state.get("expires_at_ms", 0)) > now_wall
+        except (TypeError, ValueError):
+            fresh = False
+        return ids.copy(), True, fresh
+
+
+async def update_admin_member_cache(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    user_id: int,
+    *,
+    is_admin: bool,
+) -> list[int]:
+    """Update one user's admin membership in both process and durable caches.
+
+    Used by hybrid get_chat_member authorization so the full admin list does not
+    need to be refetched during normal settings interactions.
+    """
+    chat_id = int(chat_id)
+    user_id = int(user_id)
+    ids, _, _ = await get_chat_admin_ids_state_snapshot(context.bot_data, chat_id)
+    id_set = {int(x) for x in ids}
+    if is_admin:
+        id_set.add(user_id)
+    else:
+        id_set.discard(user_id)
+    updated_ids = sorted(id_set)
+    expires_at_ms = _cache_now_ms() + ADMIN_CACHE_TTL_SECONDS * 1000
+
+    async with ADMIN_CACHE_LOCK:
+        ADMIN_IDS_CACHE[chat_id] = CacheItem(updated_ids.copy(), time.monotonic() + ADMIN_CACHE_TTL_SECONDS)
+    async with BOT_DATA_LOCK:
+        bucket = _bot_data_cache_bucket(context.bot_data, "admin_ids_cache")
+        bucket[str(chat_id)] = {"ids": updated_ids.copy(), "expires_at_ms": expires_at_ms}
+
+    return updated_ids.copy()
+
+
+async def get_chat_admin_ids_cached(context: ContextTypes.DEFAULT_TYPE, chat_id: int, *, force: bool = False, allow_api: bool = True) -> list[int]:
+    now_wall = _cache_now_ms()
+
+    # 1) Fast process-local cache.
     async with ADMIN_CACHE_LOCK:
         cached = ADMIN_IDS_CACHE.get(chat_id)
-        if cached and not force and cached.expires_at > now:
+        if cached and not force and cached.expires_at > time.monotonic():
             return list(cached.value)
+
+    # 2) bot_data cache survives PTB persistence / Redis hydrate.
+    async with BOT_DATA_LOCK:
+        bucket = _bot_data_cache_bucket(context.bot_data, "admin_ids_cache")
+        cached_state = bucket.get(str(chat_id))
+        if isinstance(cached_state, dict) and not force:
+            try:
+                if int(cached_state.get("expires_at_ms", 0)) > now_wall:
+                    ids = [int(x) for x in cached_state.get("ids", [])]
+                    async with ADMIN_CACHE_LOCK:
+                        ADMIN_IDS_CACHE[chat_id] = CacheItem(ids, time.monotonic() + ADMIN_CACHE_TTL_SECONDS)
+                    return list(ids)
+            except (TypeError, ValueError):
+                bucket.pop(str(chat_id), None)
+
+    if not allow_api:
+        return await get_chat_admin_ids_from_state(context.bot_data, chat_id)
 
     try:
         admins = await context.bot.get_chat_administrators(chat_id)
-        ids = [a.user.id for a in admins if not a.user.is_bot]
+        ids = [int(a.user.id) for a in admins if not a.user.is_bot]
     except TelegramError as exc:
         logger.warning("Could not fetch admins for chat_id=%s: %s", chat_id, exc)
         return []
 
     async with ADMIN_CACHE_LOCK:
         ADMIN_IDS_CACHE[chat_id] = CacheItem(ids, time.monotonic() + ADMIN_CACHE_TTL_SECONDS)
+    async with BOT_DATA_LOCK:
+        bucket = _bot_data_cache_bucket(context.bot_data, "admin_ids_cache")
+        bucket[str(chat_id)] = {"ids": ids, "expires_at_ms": now_wall + ADMIN_CACHE_TTL_SECONDS * 1000}
     return list(ids)
 
 
-async def get_bot_member_cached(context: ContextTypes.DEFAULT_TYPE, chat_id: int, *, force: bool = False) -> BotPerms:
-    now = time.monotonic()
+def get_bot_member_from_state(bot_data: dict[str, Any], chat_id: int) -> BotPerms | None:
+    """Read cached bot permissions only; never calls Telegram."""
+    bucket = bot_data.get("bot_member_cache")
+    if not isinstance(bucket, dict):
+        return None
+    cached_state = bucket.get(str(int(chat_id))) or bucket.get(int(chat_id))
+    if not isinstance(cached_state, dict):
+        return None
+    return BotPerms(
+        status=str(cached_state.get("status", "")),
+        can_delete_messages=bool(cached_state.get("can_delete_messages", False)),
+        can_restrict_members=bool(cached_state.get("can_restrict_members", False)),
+    )
+
+
+async def get_bot_member_cached(context: ContextTypes.DEFAULT_TYPE, chat_id: int, *, force: bool = False, allow_api: bool = True) -> BotPerms:
+    now_wall = _cache_now_ms()
+
     async with BOT_MEMBER_CACHE_LOCK:
         cached = BOT_MEMBER_CACHE.get(chat_id)
-        if cached and not force and cached.expires_at > now:
+        if cached and not force and cached.expires_at > time.monotonic():
             return cached.value
+
+    async with BOT_DATA_LOCK:
+        bucket = _bot_data_cache_bucket(context.bot_data, "bot_member_cache")
+        cached_state = bucket.get(str(chat_id))
+        if isinstance(cached_state, dict) and not force:
+            try:
+                if int(cached_state.get("expires_at_ms", 0)) > now_wall:
+                    perms = BotPerms(
+                        status=str(cached_state.get("status", "")),
+                        can_delete_messages=bool(cached_state.get("can_delete_messages", False)),
+                        can_restrict_members=bool(cached_state.get("can_restrict_members", False)),
+                    )
+                    async with BOT_MEMBER_CACHE_LOCK:
+                        BOT_MEMBER_CACHE[chat_id] = CacheItem(perms, time.monotonic() + BOT_MEMBER_CACHE_TTL_SECONDS)
+                    return perms
+            except (TypeError, ValueError):
+                bucket.pop(str(chat_id), None)
+
+    if not allow_api:
+        cached_perms = get_bot_member_from_state(context.bot_data, chat_id)
+        return cached_perms or BotPerms(status="unknown", can_delete_messages=False, can_restrict_members=False)
 
     bot_id, _ = await get_bot_identity(context.bot)
     member = await context.bot.get_chat_member(chat_id, bot_id)
@@ -1147,14 +1501,110 @@ async def get_bot_member_cached(context: ContextTypes.DEFAULT_TYPE, chat_id: int
 
     async with BOT_MEMBER_CACHE_LOCK:
         BOT_MEMBER_CACHE[chat_id] = CacheItem(perms, time.monotonic() + BOT_MEMBER_CACHE_TTL_SECONDS)
+    async with BOT_DATA_LOCK:
+        bucket = _bot_data_cache_bucket(context.bot_data, "bot_member_cache")
+        bucket[str(chat_id)] = {
+            "status": perms.status,
+            "can_delete_messages": perms.can_delete_messages,
+            "can_restrict_members": perms.can_restrict_members,
+            "expires_at_ms": now_wall + BOT_MEMBER_CACHE_TTL_SECONDS * 1000,
+        }
     return perms
 
 
-async def invalidate_chat_caches(chat_id: int) -> None:
+
+
+async def refresh_bot_member_status_silent(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    """Self-heal cached bot permissions without blocking the dashboard UI.
+
+    get_bot_member_cached(..., allow_api=True) only calls Telegram if both
+    process and durable caches are missing/expired. Errors are swallowed so old
+    dashboard messages never fail because of a refresh.
+    """
+    try:
+        await get_bot_member_cached(context, int(chat_id), allow_api=True)
+        await save_bot_data_to_redis(context.bot_data, reason="bot_member_cache_refresh", force=False)
+    except TelegramError as exc:
+        logger.info("Silent bot permission refresh failed chat_id=%s: %s", chat_id, exc)
+    except Exception as exc:
+        logger.debug("Silent bot permission refresh skipped chat_id=%s: %s", chat_id, exc)
+
+
+def schedule_bot_member_refresh(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    """Schedule a low-priority permission cache refresh."""
+    try:
+        context.application.create_task(refresh_bot_member_status_silent(context, int(chat_id)))
+    except Exception:
+        asyncio.create_task(refresh_bot_member_status_silent(context, int(chat_id)))
+
+
+async def invalidate_chat_caches(chat_id: int, bot_data: dict[str, Any] | None = None) -> None:
     async with ADMIN_CACHE_LOCK:
         ADMIN_IDS_CACHE.pop(chat_id, None)
     async with BOT_MEMBER_CACHE_LOCK:
         BOT_MEMBER_CACHE.pop(chat_id, None)
+    if bot_data is not None:
+        async with BOT_DATA_LOCK:
+            for bucket_name in ("admin_ids_cache", "bot_member_cache", "chat_meta_cache"):
+                bucket = bot_data.get(bucket_name)
+                if isinstance(bucket, dict):
+                    bucket.pop(str(chat_id), None)
+                    bucket.pop(chat_id, None)
+
+
+async def purge_group_state(context: ContextTypes.DEFAULT_TYPE, chat_id: int, *, reason: str = "group_removed") -> None:
+    """Remove all durable state for a group after the bot leaves/is banned.
+
+    Prevents zombie groups in the private dashboard and removes incidents/settings
+    from Redis/Pickle-backed bot_data.
+    """
+    chat_key = str(int(chat_id))
+    async with BOT_DATA_LOCK:
+        group_state = context.bot_data.get("group_state")
+        if isinstance(group_state, dict):
+            group_state.pop(chat_key, None)
+            group_state.pop(int(chat_id), None)
+
+        user_state = context.bot_data.get("user_state")
+        if isinstance(user_state, dict):
+            for state in user_state.values():
+                if not isinstance(state, dict):
+                    continue
+                groups = state.get("groups")
+                if isinstance(groups, list):
+                    state["groups"] = [g for g in groups if str(g) != chat_key]
+                pending = state.get("pending_format_edit")
+                if isinstance(pending, dict) and str(pending.get("chat_id")) == chat_key:
+                    state.pop("pending_format_edit", None)
+
+        incidents = context.bot_data.get("incidents")
+        if isinstance(incidents, dict):
+            for ikey, incident in list(incidents.items()):
+                if str(ikey).startswith(f"{chat_key}:") or (isinstance(incident, dict) and str(incident.get("chat_id")) == chat_key):
+                    incidents.pop(ikey, None)
+
+        warning_counts = context.bot_data.get("warning_counts")
+        if isinstance(warning_counts, dict):
+            warning_counts.pop(chat_key, None)
+            warning_counts.pop(int(chat_id), None)
+            for key in list(warning_counts.keys()):
+                if str(key).startswith(f"{chat_key}:"):
+                    warning_counts.pop(key, None)
+
+        for bucket_name in ("admin_ids_cache", "bot_member_cache", "chat_meta_cache"):
+            bucket = context.bot_data.get(bucket_name)
+            if isinstance(bucket, dict):
+                bucket.pop(chat_key, None)
+                bucket.pop(int(chat_id), None)
+
+    async with INCIDENT_LOCKS_LOCK:
+        for ikey in list(INCIDENT_LOCKS.keys()):
+            if str(ikey).startswith(f"{chat_key}:"):
+                INCIDENT_LOCKS.pop(ikey, None)
+
+    await invalidate_chat_caches(chat_id)
+    logger.info("Purged group state chat_id=%s reason=%s", chat_id, reason)
+    await persist_context_memory(context, reason="group_purged", force=True)
 
 
 def has_delete_permission(perms: BotPerms) -> bool:
@@ -1210,6 +1660,40 @@ def _user_state_exists(bot_data: dict[str, Any], user_id: int) -> bool:
     return user_id in users or str(user_id) in users
 
 
+# The literal pattern r"^\.[a-z0-9][a-z0-9_+-.]*{0,15}$" is invalid in Python
+# because it stacks quantifiers ("*{0,15}"). This is the safe equivalent:
+# - starts with a dot
+# - supports compound extensions such as .tar.gz
+# - blocks double dots and trailing dots
+# - limits the body to 1..16 chars for compact callback payloads
+VALID_EXTENSION_RE = re.compile(r"^\.(?!.*\.\.)(?!.*\.$)[a-z0-9][a-z0-9_+-.]{0,15}$")
+
+
+def _dedupe_valid_extensions(values: Iterable[Any], *, limit: int | None = None) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        ext = _normalize_extension(str(raw).strip().strip("`'\"").lstrip("*"))
+        if not VALID_EXTENSION_RE.fullmatch(ext):
+            continue
+        if ext not in seen:
+            cleaned.append(ext)
+            seen.add(ext)
+        if limit is not None and len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def parse_extensions_from_text(text: str) -> list[str]:
+    tokens = re.split(r"[\s,;|]+", text.strip().casefold())
+    return _dedupe_valid_extensions(tokens, limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
+
+
+def format_extension_list(values: Iterable[Any]) -> str:
+    items = _dedupe_valid_extensions(values)
+    return ", ".join(items) if items else "none"
+
+
 def get_group_settings(bot_data: dict[str, Any], chat_id: int) -> dict[str, Any]:
     state = get_group_state(bot_data, chat_id)
     settings = state.setdefault("settings", {})
@@ -1221,11 +1705,10 @@ def get_group_settings(bot_data: dict[str, Any], chat_id: int) -> dict[str, Any]
             settings[key] = list(value) if isinstance(value, list) else value
     if settings.get("strictness") not in {"standard", "high"}:
         settings["strictness"] = "standard"
-    if not isinstance(settings.get("allowed_extensions"), list):
-        settings["allowed_extensions"] = []
-    settings["allowed_extensions"] = [
-        _normalize_extension(str(ext)) for ext in settings.get("allowed_extensions", []) if str(ext).strip()
-    ]
+    for list_key in ("allowed_extensions", "custom_blocked_extensions"):
+        if not isinstance(settings.get(list_key), list):
+            settings[list_key] = []
+        settings[list_key] = _dedupe_valid_extensions(settings.get(list_key, []), limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
     settings["protection_enabled"] = bool(settings.get("protection_enabled", True))
     settings["silent_mode"] = bool(settings.get("silent_mode", False))
     return settings
@@ -1246,19 +1729,136 @@ def _safe_chat_id_from_payload(payload: str) -> int | None:
         return None
 
 
-async def is_user_admin_in_group(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int) -> bool:
+async def is_user_admin_in_group(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    user_id: int,
+    *,
+    force: bool = False,
+    allow_api: bool = True,
+) -> bool:
+    """Hybrid group-admin authorization.
+
+    - Owners always pass without Telegram API.
+    - Fresh process/bot_data admin caches are used first.
+    - If allow_api=True and the cache is missing/expired, performs one live
+      get_chat_member(chat_id, user_id) lookup, then updates the durable cache.
+    - If allow_api=False, falls back to offline bot_data only for dashboard/UI
+      rendering so high-frequency screens never create 429/FloodWait pressure.
+    """
+    chat_id = int(chat_id)
+    user_id = int(user_id)
+    if user_id in BOT_OWNER_IDS:
+        return True
+
+    # 1) Process-local cache, only if fresh.
+    if not force:
+        async with ADMIN_CACHE_LOCK:
+            cached = ADMIN_IDS_CACHE.get(chat_id)
+            if cached and cached.expires_at > time.monotonic():
+                return user_id in set(list(cached.value))
+
+    # 2) Durable bot_data cache, only if fresh unless API is disallowed.
+    ids, cache_exists, cache_fresh = await get_chat_admin_ids_state_snapshot(context.bot_data, chat_id)
+    if not force and cache_exists and cache_fresh:
+        async with ADMIN_CACHE_LOCK:
+            ADMIN_IDS_CACHE[chat_id] = CacheItem(ids.copy(), time.monotonic() + ADMIN_CACHE_TTL_SECONDS)
+        return user_id in set(ids)
+
+    # 3) Offline UI path: use stale cache if it exists, but never call Telegram.
+    if not allow_api:
+        return user_id in set(ids)
+
+    # 4) Hybrid self-healing path: one live member lookup for this user only.
     try:
         member = await context.bot.get_chat_member(chat_id, user_id)
     except TelegramError as exc:
-        logger.info("Could not verify admin user_id=%s chat_id=%s: %s", user_id, chat_id, exc)
-        return False
+        logger.warning(
+            "Admin live membership check failed chat_id=%s user_id=%s: %s",
+            chat_id,
+            user_id,
+            exc,
+        )
+        # Conservative fallback: stale cache is allowed only if it already knows this user.
+        return user_id in set(ids)
+
     status = str(getattr(member, "status", ""))
-    return status in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"}
+    is_admin = status in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"}
+    await update_admin_member_cache(context, chat_id, user_id, is_admin=is_admin)
+    # Redis save is throttled by REDIS_AUTOSAVE_MIN_INTERVAL_SECONDS to avoid write storms.
+    await save_bot_data_to_redis(context.bot_data, reason="admin_member_live_refresh", force=False)
+    return is_admin
 
 
-async def link_user_to_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> None:
+async def is_verified_admin_anywhere(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    *,
+    allow_api: bool = True,
+) -> bool:
+    if int(user_id) in BOT_OWNER_IDS:
+        return True
+
+    groups = get_groups(context.bot_data, user_id)
+    if not groups:
+        return False
+
+    sem = asyncio.Semaphore(5)
+
+    async def check_one(chat_id: int) -> bool:
+        async with sem:
+            return await is_user_admin_in_group(context, chat_id, user_id, allow_api=allow_api)
+
+    results = await asyncio.gather(*(check_one(chat_id) for chat_id in groups), return_exceptions=True)
+    return any(result is True for result in results)
+
+
+async def is_admin_or_owner(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    *,
+    chat_id: int | None = None,
+    allow_api: bool = True,
+) -> bool:
+    """Owner or verified group-admin check.
+
+    allow_api=True gives commands/settings a self-healing live get_chat_member
+    path when the admin cache is stale.  Dashboard callers should pass
+    allow_api=False to stay completely offline and rate-limit safe.
+    """
+    if int(user_id) in BOT_OWNER_IDS:
+        return True
+    if chat_id is not None:
+        return await is_user_admin_in_group(context, int(chat_id), int(user_id), allow_api=allow_api)
+    return await is_verified_admin_anywhere(context, int(user_id), allow_api=allow_api)
+
+
+async def require_admin_or_owner(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    silent: bool = False,
+    allow_api: bool = True,
+) -> bool:
+    """Strict guard for diagnostic/config commands."""
+    user = update.effective_user
+    chat = update.effective_chat
+    if not user:
+        return False
+    chat_id = chat.id if chat and is_group_chat(chat.type) else None
+    ok = await is_admin_or_owner(context, user.id, chat_id=chat_id, allow_api=allow_api)
+    if not ok and not silent:
+        await safe_reply(update, tr(context.bot_data, user.id, "access_denied"))
+    return ok
+
+
+# Backward-compatible name used by older handlers in this file.
+require_verified_admin = require_admin_or_owner
+
+
+async def link_user_to_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int, *, title: str | None = None, chat_type: str | None = None) -> None:
     await add_group(context.bot_data, user_id, chat_id)
-    await remember_group(context.bot_data, chat_id, added_by=user_id, lang=get_lang(context.bot_data, user_id))
+    await remember_group(context.bot_data, chat_id, added_by=user_id, lang=get_lang(context.bot_data, user_id), title=title, chat_type=chat_type)
     await persist_context_memory(context, reason="link_user_group", force=True)
 
 
@@ -1299,6 +1899,19 @@ async def send_or_edit_panel(update: Update, text: str, reply_markup: InlineKeyb
         await safe_reply(update, text, reply_markup=reply_markup)
 
 
+def callback_is_private(query: Any) -> bool:
+    msg = getattr(query, "message", None)
+    chat = getattr(msg, "chat", None)
+    return bool(chat and chat.type == ChatType.PRIVATE)
+
+
+async def reject_group_config_callback(query: Any, bot_data: dict[str, Any], user_id: int) -> None:
+    try:
+        await query.answer(tr(bot_data, user_id, "config_private_only"), show_alert=True)
+    except TelegramError as exc:
+        logger.debug("Could not answer private-only callback warning: %s", exc)
+
+
 async def render_home(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
     await send_or_edit_panel(update, tr(context.bot_data, user_id, "home_title"), await dashboard_home_keyboard(context, user_id))
 
@@ -1309,6 +1922,23 @@ async def render_help_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
     groups = get_groups(context.bot_data, user_id)
+    if int(user_id) not in BOT_OWNER_IDS and groups:
+        checks = await asyncio.gather(
+            *(is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=False) for chat_id in groups),
+            return_exceptions=True,
+        )
+        authorized_groups = [
+            chat_id
+            for chat_id, ok in zip(groups, checks)
+            if ok is True
+        ]
+        if len(authorized_groups) != len(groups):
+            async with BOT_DATA_LOCK:
+                state = get_user_state(context.bot_data, user_id)
+                state["groups"] = authorized_groups
+            await persist_context_memory(context, reason="dashboard_admin_prune", force=True)
+        groups = authorized_groups
+
     if not groups:
         kb = InlineKeyboardMarkup(
             [
@@ -1325,17 +1955,14 @@ async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     async def describe_group(chat_id: int) -> tuple[int, str, str]:
         async with sem:
-            try:
-                chat = await context.bot.get_chat(chat_id)
-                title = chat.title or str(chat_id)
-            except TelegramError:
-                title = str(chat_id)
-            try:
-                perms = await get_bot_member_cached(context, chat_id, force=True)
-                permission = tr(context.bot_data, user_id, "perm_ok" if has_delete_permission(perms) else "perm_no")
-            except TelegramError:
+            title = get_chat_title_from_state(context.bot_data, chat_id)
+            perms = get_bot_member_from_state(context.bot_data, chat_id)
+            if perms is None or perms.status == "unknown":
                 permission = tr(context.bot_data, user_id, "perm_unknown")
-            settings = get_group_settings(context.bot_data, chat_id)
+            else:
+                permission = tr(context.bot_data, user_id, "perm_ok" if has_delete_permission(perms) else "perm_no")
+            async with BOT_DATA_LOCK:
+                settings = dict(get_group_settings(context.bot_data, chat_id))
             card = tr(
                 context.bot_data,
                 user_id,
@@ -1372,10 +1999,38 @@ def group_settings_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int
             [InlineKeyboardButton(f"{protection} Protection", callback_data=f"gset:{chat_id}:protection")],
             [InlineKeyboardButton(f"🧪 Strictness: {strictness}", callback_data=f"gset:{chat_id}:strictness")],
             [InlineKeyboardButton(f"🤫 Silent Mode: {silent}", callback_data=f"gset:{chat_id}:silent")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_manage_formats"), callback_data=f"gfmt:{chat_id}:menu")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data="nav:groups")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
         ]
     )
+
+
+def format_manager_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
+    settings = get_group_settings(bot_data, chat_id)
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(tr(bot_data, user_id, "btn_add_format"), callback_data=f"gfmt:{chat_id}:add"),
+            InlineKeyboardButton(tr(bot_data, user_id, "btn_edit_formats"), callback_data=f"gfmt:{chat_id}:edit"),
+        ]
+    ]
+    if settings.get("custom_blocked_extensions"):
+        rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_remove_format"), callback_data=f"gfmt:{chat_id}:remove")])
+        rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_clear_formats"), callback_data=f"gfmt:{chat_id}:clear")])
+    rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data=f"grp:{chat_id}")])
+    rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")])
+    return InlineKeyboardMarkup(rows)
+
+
+def remove_format_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
+    settings = get_group_settings(bot_data, chat_id)
+    rows: list[list[InlineKeyboardButton]] = []
+    for ext in settings.get("custom_blocked_extensions", []):
+        payload_ext = ext.removeprefix(".")
+        rows.append([InlineKeyboardButton(f"🗑 {ext}", callback_data=f"gfmtdel:{chat_id}:{payload_ext}")])
+    rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data=f"gfmt:{chat_id}:menu")])
+    rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")])
+    return InlineKeyboardMarkup(rows)
 
 
 async def render_group_settings_panel(
@@ -1386,14 +2041,11 @@ async def render_group_settings_panel(
     *,
     notice: str = "",
 ) -> None:
-    try:
-        chat = await context.bot.get_chat(chat_id)
-        title = chat.title or str(chat_id)
-    except TelegramError:
-        title = str(chat_id)
+    title = get_chat_title_from_state(context.bot_data, chat_id)
 
     settings = get_group_settings(context.bot_data, chat_id)
-    allowed = ", ".join(settings.get("allowed_extensions", [])) or "none"
+    allowed = format_extension_list(settings.get("allowed_extensions", []))
+    custom_blocked = format_extension_list(settings.get("custom_blocked_extensions", []))
     text = tr(
         context.bot_data,
         user_id,
@@ -1404,18 +2056,66 @@ async def render_group_settings_panel(
         strictness=_strictness_label(context.bot_data, user_id, str(settings.get("strictness", "standard"))),
         silent=_on_off(context.bot_data, user_id, bool(settings.get("silent_mode")), key_on="silent_on", key_off="silent_off"),
         allowed=h(allowed),
+        custom_blocked=h(custom_blocked),
     )
     if notice:
         text = f"{notice}\n\n{text}"
     await send_or_edit_panel(update, text, group_settings_keyboard(context.bot_data, user_id, chat_id))
 
 
+async def render_format_manager_panel(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    chat_id: int,
+    *,
+    notice: str = "",
+    remove_mode: bool = False,
+) -> None:
+    title = get_chat_title_from_state(context.bot_data, chat_id)
+
+    settings = get_group_settings(context.bot_data, chat_id)
+    custom_blocked = format_extension_list(settings.get("custom_blocked_extensions", []))
+    text = tr(
+        context.bot_data,
+        user_id,
+        "formats_title",
+        group=h(title),
+        chat_id=chat_id,
+        custom_blocked=h(custom_blocked),
+    )
+    if notice:
+        text = f"{notice}\n\n{text}"
+    keyboard = remove_format_keyboard(context.bot_data, user_id, chat_id) if remove_mode else format_manager_keyboard(context.bot_data, user_id, chat_id)
+    await send_or_edit_panel(update, text, keyboard)
+
+
+async def set_pending_format_edit(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int, mode: str) -> None:
+    async with BOT_DATA_LOCK:
+        state = get_user_state(context.bot_data, user_id)
+        state["pending_format_edit"] = {"chat_id": int(chat_id), "mode": mode, "created_at_ms": now_ms()}
+    await persist_context_memory(context, reason="pending_format_edit", force=True)
+
+
+async def clear_pending_format_edit(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    async with BOT_DATA_LOCK:
+        state = get_user_state(context.bot_data, user_id)
+        state.pop("pending_format_edit", None)
+    await persist_context_memory(context, reason="clear_pending_format_edit", force=True)
+
+
 async def navigation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if not query or not query.from_user:
         return
-    await query.answer()
     user_id = query.from_user.id
+    if not callback_is_private(query):
+        await reject_group_config_callback(query, context.bot_data, user_id)
+        return
+    await query.answer()
+    if not await is_admin_or_owner(context, user_id, allow_api=False):
+        await safe_edit_query(query, tr(context.bot_data, user_id, "access_denied"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
     data = query.data or ""
     if data == "nav:home":
         await render_home(update, context, user_id)
@@ -1431,16 +2131,20 @@ async def group_dashboard_callback(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     if not query or not query.from_user:
         return
-    await query.answer()
     user_id = query.from_user.id
+    if not callback_is_private(query):
+        await reject_group_config_callback(query, context.bot_data, user_id)
+        return
+    await query.answer()
     data = query.data or ""
     chat_id = _safe_chat_id_from_payload(data)
     if chat_id is None:
         await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
         return
-    if not await is_user_admin_in_group(context, chat_id, user_id):
+    if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
         return
+    schedule_bot_member_refresh(context, chat_id)
     await link_user_to_group(context, user_id, chat_id)
     await render_group_settings_panel(update, context, user_id, chat_id)
 
@@ -1449,8 +2153,11 @@ async def group_settings_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     if not query or not query.from_user:
         return
-    await query.answer()
     user_id = query.from_user.id
+    if not callback_is_private(query):
+        await reject_group_config_callback(query, context.bot_data, user_id)
+        return
+    await query.answer()
     data = query.data or ""
     parts = data.split(":", 2)
     if len(parts) != 3:
@@ -1462,9 +2169,10 @@ async def group_settings_callback(update: Update, context: ContextTypes.DEFAULT_
     except ValueError:
         await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
         return
-    if not await is_user_admin_in_group(context, chat_id, user_id):
+    if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
         return
+    schedule_bot_member_refresh(context, chat_id)
 
     async with BOT_DATA_LOCK:
         settings = get_group_settings(context.bot_data, chat_id)
@@ -1483,6 +2191,149 @@ async def group_settings_callback(update: Update, context: ContextTypes.DEFAULT_
     await render_group_settings_panel(update, context, user_id, chat_id, notice=tr(context.bot_data, user_id, "settings_saved"))
 
 
+async def format_manager_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    user_id = query.from_user.id
+    if not callback_is_private(query):
+        await reject_group_config_callback(query, context.bot_data, user_id)
+        return
+    await query.answer()
+    data = query.data or ""
+    parts = data.split(":", 2)
+    if len(parts) != 3:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    _, chat_id_raw, action = parts
+    try:
+        chat_id = int(chat_id_raw)
+    except ValueError:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
+        await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
+    schedule_bot_member_refresh(context, chat_id)
+
+    await link_user_to_group(context, user_id, chat_id)
+
+    if action == "menu":
+        await render_format_manager_panel(update, context, user_id, chat_id)
+        return
+    if action in {"add", "edit"}:
+        await set_pending_format_edit(context, user_id, chat_id, action)
+        prompt_key = "formats_prompt_add" if action == "add" else "formats_prompt_edit"
+        await safe_edit_query(query, tr(context.bot_data, user_id, prompt_key), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
+    if action == "remove":
+        settings = get_group_settings(context.bot_data, chat_id)
+        if not settings.get("custom_blocked_extensions"):
+            await render_format_manager_panel(update, context, user_id, chat_id, notice=tr(context.bot_data, user_id, "formats_empty"))
+            return
+        await render_format_manager_panel(update, context, user_id, chat_id, remove_mode=True)
+        return
+    if action == "clear":
+        async with BOT_DATA_LOCK:
+            settings = get_group_settings(context.bot_data, chat_id)
+            settings["custom_blocked_extensions"] = []
+        await persist_context_memory(context, reason="custom_formats_clear", force=True)
+        await render_format_manager_panel(update, context, user_id, chat_id, notice=tr(context.bot_data, user_id, "formats_cleared"))
+        return
+
+    await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+
+
+async def delete_format_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    user_id = query.from_user.id
+    if not callback_is_private(query):
+        await reject_group_config_callback(query, context.bot_data, user_id)
+        return
+    await query.answer()
+    data = query.data or ""
+    parts = data.split(":", 2)
+    if len(parts) != 3:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    _, chat_id_raw, ext_raw = parts
+    try:
+        chat_id = int(chat_id_raw)
+    except ValueError:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    ext = _normalize_extension(ext_raw)
+    if not VALID_EXTENSION_RE.fullmatch(ext):
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
+        await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
+    schedule_bot_member_refresh(context, chat_id)
+
+    async with BOT_DATA_LOCK:
+        settings = get_group_settings(context.bot_data, chat_id)
+        settings["custom_blocked_extensions"] = [item for item in settings.get("custom_blocked_extensions", []) if item != ext]
+    await persist_context_memory(context, reason="custom_format_delete", force=True)
+    await render_format_manager_panel(update, context, user_id, chat_id, notice=tr(context.bot_data, user_id, "formats_removed", ext=h(ext)))
+
+
+async def private_text_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    message = update.effective_message
+    chat = update.effective_chat
+    if not user or not message or not chat or chat.type != ChatType.PRIVATE:
+        return
+
+    async with BOT_DATA_LOCK:
+        user_state = context.bot_data.get("user_state", {})
+        state = (user_state.get(user.id) or user_state.get(str(user.id)) or {}) if isinstance(user_state, dict) else {}
+        pending = dict(state.get("pending_format_edit")) if isinstance(state, dict) and isinstance(state.get("pending_format_edit"), dict) else None
+    text = (message.text or "").strip()
+    if not isinstance(pending, dict):
+        # Do not auto-open the home menu for random private text.
+        # CommandHandler handles /start, /settings, /help, etc. before this handler.
+        return
+
+    if text.casefold() in {"/cancel", "cancel", "បោះបង់"}:
+        await clear_pending_format_edit(context, user.id)
+        await safe_reply(update, tr(context.bot_data, user.id, "formats_cancelled"), reply_markup=await dashboard_home_keyboard(context, user.id))
+        return
+
+    try:
+        chat_id = int(pending.get("chat_id"))
+    except (TypeError, ValueError):
+        await clear_pending_format_edit(context, user.id)
+        await safe_reply(update, tr(context.bot_data, user.id, "unknown_error"), reply_markup=await dashboard_home_keyboard(context, user.id))
+        return
+    mode = str(pending.get("mode") or "add")
+
+    if not await is_user_admin_in_group(context, chat_id, user.id):
+        await clear_pending_format_edit(context, user.id)
+        await safe_reply(update, tr(context.bot_data, user.id, "group_admin_only"), reply_markup=await dashboard_home_keyboard(context, user.id))
+        return
+
+    parsed = parse_extensions_from_text(text)
+    if not parsed:
+        await safe_reply(update, tr(context.bot_data, user.id, "formats_invalid"))
+        return
+
+    async with BOT_DATA_LOCK:
+        settings = get_group_settings(context.bot_data, chat_id)
+        current = settings.get("custom_blocked_extensions", [])
+        if mode == "edit":
+            settings["custom_blocked_extensions"] = parsed[:MAX_CUSTOM_BLOCKED_EXTENSIONS]
+        else:
+            settings["custom_blocked_extensions"] = _dedupe_valid_extensions([*current, *parsed], limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
+        get_user_state(context.bot_data, user.id).pop("pending_format_edit", None)
+
+    await link_user_to_group(context, user.id, chat_id)
+    await persist_context_memory(context, reason="custom_formats_save", force=True)
+    await render_format_manager_panel(update, context, user.id, chat_id, notice=tr(context.bot_data, user.id, "formats_saved"))
+
+
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat = update.effective_chat
@@ -1491,17 +2342,25 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await remember_user_profile(context.bot_data, user)
 
     if chat and is_group_chat(chat.type):
-        if not await is_user_admin_in_group(context, chat.id, user.id):
+        if not await is_admin_or_owner(context, user.id, chat_id=chat.id):
             await safe_reply(update, tr(context.bot_data, user.id, "group_admin_only"))
             return
-        await link_user_to_group(context, user.id, chat.id)
+        await remember_chat_meta(context.bot_data, chat)
+        async with BOT_DATA_LOCK:
+            get_group_state(context.bot_data, chat.id)["title"] = chat.title or str(chat.id)
+        await link_user_to_group(context, user.id, chat.id, title=chat.title or str(chat.id), chat_type=str(chat.type))
         url = await group_private_settings_url(context, chat.id)
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user.id, "btn_settings"), url=url)]])
-        await safe_reply(update, tr(context.bot_data, user.id, "settings_group_open_private"), reply_markup=kb)
+        await safe_reply(
+            update,
+            tr(context.bot_data, user.id, "settings_group_open_private") + "\n\n" + tr(context.bot_data, user.id, "config_private_only"),
+            reply_markup=kb,
+        )
         return
 
     # Private /settings opens the user's dynamic group dashboard.
     await render_groups_panel(update, context, user.id)
+
 
 
 def apply_group_scan_policy(bot_data: dict[str, Any], chat_id: int, scan: FileScanResult) -> FileScanResult:
@@ -1510,9 +2369,23 @@ def apply_group_scan_policy(bot_data: dict[str, Any], chat_id: int, scan: FileSc
         return replace(scan, blocked=False, reason_code="protection_disabled", reason_display="group protection is disabled")
 
     matched_ext = _normalize_extension(scan.matched_extension) if scan.matched_extension else ""
-    allowed_exts = {_normalize_extension(ext) for ext in settings.get("allowed_extensions", []) if str(ext).strip()}
-    if matched_ext and matched_ext in allowed_exts:
-        return replace(scan, blocked=False, reason_code="allowed_extension", reason_display=f"allowed by group settings: {matched_ext}")
+    suffixes = filename_suffixes(scan.file_name)
+    last_ext = suffixes[-1] if suffixes else matched_ext
+    allowed_exts = set(settings.get("allowed_extensions", []))
+    allowed = matched_ext if matched_ext in allowed_exts else next((ext for ext in suffixes if ext in allowed_exts), "")
+    if allowed:
+        return replace(scan, blocked=False, reason_code="allowed_extension", reason_display=f"allowed by group settings: {allowed}")
+
+    custom_blocked = set(settings.get("custom_blocked_extensions", []))
+    custom_match = last_ext if last_ext in custom_blocked else next((ext for ext in suffixes if ext in custom_blocked), "")
+    if custom_match:
+        return replace(
+            scan,
+            blocked=True,
+            reason_code="custom_group_extension",
+            reason_display=f"blocked by group custom delete format {custom_match}",
+            matched_extension=custom_match,
+        )
 
     strictness = str(settings.get("strictness", "standard"))
     if strictness == "standard" and scan.blocked:
@@ -1831,19 +2704,17 @@ async def check_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     async def check_one(chat_id: int) -> str | None:
         try:
-            chat = await context.bot.get_chat(chat_id)
-            perms = await get_bot_member_cached(context, chat_id, force=True)
-            safe_title = h(chat.title or str(chat_id))
+            title = get_chat_title_from_state(context.bot_data, chat_id)
+            perms = await get_bot_member_cached(context, chat_id)
+            safe_title = h(title)
             if perms.status not in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"}:
                 return f"❌ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'not_admin')}"
             if not perms.can_delete_messages:
                 return f"⚠️ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'no_delete_perm')}"
             return f"✅ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'setup_ok', group=safe_title)}"
         except (Forbidden, BadRequest) as exc:
-            logger.warning("Permission check failed chat_id=%s and group was removed from saved list: %s", chat_id, exc)
-            await remove_group_from_user(context.bot_data, user_id, chat_id)
-            await invalidate_chat_caches(chat_id)
-            await persist_context_memory(context, reason="remove_stale_group", force=True)
+            logger.warning("Permission check failed chat_id=%s and group was purged from saved list: %s", chat_id, exc)
+            await purge_group_state(context, chat_id, reason="remove_stale_group")
             return None
         except TelegramError as exc:
             logger.warning("Permission check failed chat_id=%s: %s", chat_id, exc)
@@ -1977,12 +2848,20 @@ async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TY
     if not is_group_chat(chat.type):
         return
 
-    await invalidate_chat_caches(chat.id)
+    await invalidate_chat_caches(chat.id, context.bot_data)
 
-    # Bot removed/left: no need to keep checking stale permissions in cache.
-    banned_status = getattr(ChatMemberStatus, "BANNED", "kicked")
-    if new_status in {str(ChatMemberStatus.LEFT), str(banned_status), "left", "kicked"}:
-        logger.info("Bot removed from chat_id=%s title=%r", chat.id, chat.title)
+    # Bot removed/left/kicked: purge durable state so private dashboards do not show zombie groups.
+    removed_statuses = {
+        str(getattr(ChatMemberStatus, "LEFT", "left")),
+        str(getattr(ChatMemberStatus, "BANNED", "kicked")),
+        str(getattr(ChatMemberStatus, "KICKED", "kicked")),
+        "left",
+        "banned",
+        "kicked",
+    }
+    if new_status.casefold() in {status.casefold() for status in removed_statuses}:
+        logger.info("Bot removed from chat_id=%s title=%r; purging stored group state", chat.id, chat.title)
+        await purge_group_state(context, chat.id, reason="bot_removed_from_group")
         return
 
     adder = result.from_user
@@ -1990,13 +2869,32 @@ async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     await remember_user_profile(context.bot_data, adder)
+    await remember_chat_meta(context.bot_data, chat)
     await add_group(context.bot_data, adder.id, chat.id)
-    await remember_group(context.bot_data, chat.id, added_by=adder.id, lang=get_lang(context.bot_data, adder.id))
-    await persist_context_memory(context, reason="chat_member_update", force=True)
+    await remember_group(context.bot_data, chat.id, added_by=adder.id, lang=get_lang(context.bot_data, adder.id), title=chat.title or str(chat.id), chat_type=str(chat.type))
+    try:
+        # Lifecycle refresh only. Standard UI authorization reads this cache exclusively.
+        await get_chat_admin_ids_cached(context, chat.id, force=True, allow_api=True)
+    except TelegramError as exc:
+        logger.warning("Admin cache refresh failed in my_chat_member_update chat_id=%s: %s", chat.id, exc)
 
     safe_title = h(chat.title or "Group")
     can_delete = bool(getattr(new_member, "can_delete_messages", False))
     is_admin = new_status in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"}
+    async with BOT_DATA_LOCK:
+        bucket = _bot_data_cache_bucket(context.bot_data, "bot_member_cache")
+        bucket[str(int(chat.id))] = {
+            "status": new_status,
+            "can_delete_messages": can_delete,
+            "can_restrict_members": bool(getattr(new_member, "can_restrict_members", False)),
+            "expires_at_ms": _cache_now_ms() + BOT_MEMBER_CACHE_TTL_SECONDS * 1000,
+        }
+    async with BOT_MEMBER_CACHE_LOCK:
+        BOT_MEMBER_CACHE[int(chat.id)] = CacheItem(
+            BotPerms(new_status, can_delete, bool(getattr(new_member, "can_restrict_members", False))),
+            time.monotonic() + BOT_MEMBER_CACHE_TTL_SECONDS,
+        )
+    await persist_context_memory(context, reason="chat_member_update", force=True)
 
     if is_admin and can_delete:
         msg = tr(context.bot_data, adder.id, "setup_ok", group=safe_title)
@@ -2041,12 +2939,12 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await message.delete()
     except TelegramError as exc:
         logger.error("Could not delete blocked file chat_id=%s message_id=%s: %s", chat.id, message.message_id, exc)
-        await invalidate_chat_caches(chat.id)
+        await invalidate_chat_caches(chat.id, context.bot_data)
         await safe_send_message(context, chat.id, tr_group(context.bot_data, chat.id, "delete_failed"))
         return
 
     await remember_user_profile(context.bot_data, sender)
-    await remember_group(context.bot_data, chat.id, lang=get_group_lang(context.bot_data, chat.id))
+    await remember_group(context.bot_data, chat.id, lang=get_group_lang(context.bot_data, chat.id), title=chat.title or str(chat.id), chat_type=str(chat.type))
     user_mention = user_link(sender_id, sender_name_raw)
     scan_reason = describe_scan_reason(scan.reason_code, (scan.reason_display, *scan.details))
     settings = get_group_settings(context.bot_data, chat.id)
@@ -2093,13 +2991,48 @@ def scanner_config_text(bot_data: dict[str, Any], user_id: int | None) -> str:
     )
 
 
+def scanner_group_config_text(bot_data: dict[str, Any], user_id: int | None, chat_id: int) -> str:
+    settings = get_group_settings(bot_data, chat_id)
+    return scanner_config_text(bot_data, user_id) + tr(
+        bot_data,
+        user_id,
+        "scanner_group_status",
+        protection=_on_off(bot_data, user_id, bool(settings.get("protection_enabled"))),
+        strictness=_strictness_label(bot_data, user_id, str(settings.get("strictness", "standard"))),
+        silent=_on_off(bot_data, user_id, bool(settings.get("silent_mode")), key_on="silent_on", key_off="silent_off"),
+        allowed=h(format_extension_list(settings.get("allowed_extensions", []))),
+        custom_blocked=h(format_extension_list(settings.get("custom_blocked_extensions", []))),
+    )
+
+
 async def scanner_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id if update.effective_user else None
+    user = update.effective_user
+    chat = update.effective_chat
+    user_id = user.id if user else None
+    if not await require_admin_or_owner(update, context):
+        return
+
+    if chat and is_group_chat(chat.type):
+        if not user or not await is_admin_or_owner(context, user.id, chat_id=chat.id):
+            await safe_reply(update, tr(context.bot_data, user_id, "group_admin_only"))
+            return
+        await remember_chat_meta(context.bot_data, chat)
+        async with BOT_DATA_LOCK:
+            get_group_state(context.bot_data, chat.id)["title"] = chat.title or str(chat.id)
+        await link_user_to_group(context, user.id, chat.id, title=chat.title or str(chat.id), chat_type=str(chat.type))
+        url = await group_private_settings_url(context, chat.id)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user.id, "btn_settings"), url=url)]])
+        await safe_reply(update, tr(context.bot_data, user.id, "scanner_group_private_only"), reply_markup=kb)
+        return
+
     await safe_reply(update, scanner_config_text(context.bot_data, user_id))
+
 
 
 async def scanname_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id if update.effective_user else None
+    if not await require_admin_or_owner(update, context):
+        return
     file_name = " ".join(context.args or []).strip()
     if not file_name:
         await safe_reply(update, tr(context.bot_data, user_id, "scanname_usage"))
@@ -2133,6 +3066,8 @@ def memory_status_text(bot_data: dict[str, Any], user_id: int | None) -> str:
 
 async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id if update.effective_user else None
+    if not await require_admin_or_owner(update, context):
+        return
     await safe_reply(update, memory_status_text(context.bot_data, user_id))
 
 
@@ -2162,20 +3097,21 @@ async def admins_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not chat or not is_group_chat(chat.type):
         await safe_reply(update, tr(context.bot_data, user_id, "group_only"))
         return
+    if not update.effective_user or not await is_user_admin_in_group(context, chat.id, update.effective_user.id):
+        await safe_reply(update, tr(context.bot_data, user_id, "group_admin_only"))
+        return
 
-    try:
-        admins = await context.bot.get_chat_administrators(chat.id)
-        human_admins = [a for a in admins if not a.user.is_bot]
-        ready_user_ids = {int(uid) for uid in context.bot_data.get("user_state", {}).keys() if str(uid).lstrip("-").isdigit()}
-        lang = get_lang(context.bot_data, user_id)
-        lines = []
-        for i, admin in enumerate(human_admins, 1):
-            status = TEXTS[lang]["admins_enabled"] if admin.user.id in ready_user_ids else TEXTS[lang]["admins_need_start"]
-            title = f" — <i>{h(admin.custom_title)}</i>" if getattr(admin, "custom_title", None) else ""
-            lines.append(f"{i}. {user_link(admin.user.id, admin.user.full_name)}{title} — {status}")
-        msg = tr(context.bot_data, user_id, "admins_header") + "\n".join(lines) + tr(context.bot_data, user_id, "admins_note")
-    except TelegramError as exc:
-        msg = tr(context.bot_data, user_id, "status_error", error=h(str(exc)))
+    admin_ids = await get_chat_admin_ids_cached(context, chat.id, allow_api=False)
+    ready_user_ids = {int(uid) for uid in context.bot_data.get("user_state", {}).keys() if str(uid).lstrip("-").isdigit()}
+    known_users = context.bot_data.get("known_users", {}) if isinstance(context.bot_data.get("known_users", {}), dict) else {}
+    lang = get_lang(context.bot_data, user_id)
+    lines = []
+    for i, admin_id in enumerate(admin_ids, 1):
+        profile = known_users.get(str(admin_id), {}) if isinstance(known_users.get(str(admin_id), {}), dict) else {}
+        name = str(profile.get("full_name") or admin_id)
+        status = TEXTS[lang]["admins_enabled"] if admin_id in ready_user_ids else TEXTS[lang]["admins_need_start"]
+        lines.append(f"{i}. {user_link(admin_id, name)} — {status}")
+    msg = tr(context.bot_data, user_id, "admins_header") + ("\n".join(lines) if lines else "No cached admins yet.") + tr(context.bot_data, user_id, "admins_note")
     await safe_reply(update, msg)
 
 
@@ -2203,6 +3139,7 @@ async def post_init(application: Application) -> None:
                 ("scanner", "Show scanner settings"),
                 ("scanname", "Test a suspicious filename"),
                 ("memory", "Show Redis/user memory status"),
+                ("debug", "Show guarded diagnostic counters"),
             ]
         )
     except TelegramError as exc:
@@ -2216,6 +3153,29 @@ async def post_shutdown(application: Application) -> None:
     if KEEP_AWAKE_CLIENT is not None:
         await KEEP_AWAKE_CLIENT.aclose()
         KEEP_AWAKE_CLIENT = None
+
+
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Guarded diagnostic command. Shows only non-sensitive counters."""
+    user_id = update.effective_user.id if update.effective_user else None
+    if not await require_admin_or_owner(update, context):
+        return
+    async with BOT_DATA_LOCK:
+        user_count = len(context.bot_data.get("known_users", {})) if isinstance(context.bot_data.get("known_users", {}), dict) else 0
+        group_count = len(context.bot_data.get("group_state", {})) if isinstance(context.bot_data.get("group_state", {}), dict) else 0
+        admin_cache_count = len(context.bot_data.get("admin_ids_cache", {})) if isinstance(context.bot_data.get("admin_ids_cache", {}), dict) else 0
+        bot_perm_cache_count = len(context.bot_data.get("bot_member_cache", {})) if isinstance(context.bot_data.get("bot_member_cache", {}), dict) else 0
+        chat_meta_count = len(context.bot_data.get("chat_meta_cache", {})) if isinstance(context.bot_data.get("chat_meta_cache", {}), dict) else 0
+    text = (
+        "🛠️ <b>Debug</b>\n"
+        f"Users: <code>{user_count}</code>\n"
+        f"Groups: <code>{group_count}</code>\n"
+        f"Admin cache: <code>{admin_cache_count}</code>\n"
+        f"Bot perm cache: <code>{bot_perm_cache_count}</code>\n"
+        f"Chat meta cache: <code>{chat_meta_count}</code>\n"
+        f"Redis: <code>{'connected' if REDIS_AVAILABLE else 'offline/disabled'}</code>"
+    )
+    await safe_reply(update, text)
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2251,14 +3211,18 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("scanner", scanner_command))
     app.add_handler(CommandHandler("scanname", scanname_command))
     app.add_handler(CommandHandler("memory", memory_command))
+    app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CallbackQueryHandler(lang_callback, pattern=r"^lang_(en|km)$"))
     app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups|help)$"))
     app.add_handler(CallbackQueryHandler(group_dashboard_callback, pattern=r"^grp:-?\d+$"))
     app.add_handler(CallbackQueryHandler(group_settings_callback, pattern=r"^gset:-?\d+:(protection|strictness|silent)$"))
+    app.add_handler(CallbackQueryHandler(format_manager_callback, pattern=r"^gfmt:-?\d+:(menu|add|edit|remove|clear)$"))
+    app.add_handler(CallbackQueryHandler(delete_format_callback, pattern=r"^gfmtdel:-?\d+:[A-Za-z0-9_.+-]{1,16}$"))
     app.add_handler(CallbackQueryHandler(check_perm_callback, pattern=r"^check_perm$"))
     app.add_handler(CallbackQueryHandler(action_callback, pattern=r"^act:(ban|warn|ignore):.+$"))
     app.add_handler(ChatMemberHandler(my_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.Document.ALL & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP), handle_document))
+    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, private_text_flow_handler))
     app.add_error_handler(error_handler)
 
     if app.job_queue:
