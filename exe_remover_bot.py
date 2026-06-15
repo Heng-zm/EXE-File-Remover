@@ -287,7 +287,7 @@ class FileScanResult:
 
 
 # ─────────────────────────────────────────────────────────────
-# TRANSLATIONS - HTML parse mode, not Markdown
+# TRANSLATIONS - HTML parse mode, not Markdown (OPTIMIZED FOR UX)
 # ─────────────────────────────────────────────────────────────
 
 TEXTS: dict[str, dict[str, str]] = {
@@ -296,33 +296,33 @@ TEXTS: dict[str, dict[str, str]] = {
         "lang_set": "✅ Got it! I’ll speak to you in <b>English</b> from now on.",
         "welcome": (
             "👋 <b>Hey there! I’m your EXE Remover Bot.</b>\n\n"
-            "🛡️ I keep your groups safe by instantly removing dangerous <code>.exe</code> files.\n"
-            "📢 When someone sends one, I’ll DM the admin team with quick options to <b>Ban</b>, <b>Warn</b>, or <b>Ignore</b>.\n\n"
-            "➡️ Add me to your group and give me <b>Delete Messages</b> permission."
+            "🛡️ I keep your groups safe by instantly deleting dangerous <code>.exe</code> files.\n"
+            "📢 If someone sends a blocked file, I’ll DM the admins so they can easily <b>Ban</b>, <b>Warn</b>, or <b>Ignore</b> the user.\n\n"
+            "➡️ Add me to your group and grant me <b>Delete Messages</b> permission to get started."
         ),
         "add_btn": "➕ Add Me to a Group",
         "check_btn": "🔄 Check My Permissions",
-        "private_start": "Open a private chat with me to choose language and manage settings.",
+        "private_start": "Start a private chat with me to change your language and manage settings.",
         "no_group": "⚠️ I haven’t detected your group yet. Add me to a group first, then click <b>Check My Permissions</b>.",
         "not_admin": (
             "❌ <b>I’m not an admin in your group yet.</b>\n\n"
-            "Go to Group Settings → Administrators → Add Member → select me, then enable <b>Delete Messages</b>."
+            "Please go to Group Settings → Administrators → Add Member → select me, and enable <b>Delete Messages</b>."
         ),
         "no_delete_perm": (
-            "⚠️ <b>I’m an admin, but I can’t delete messages yet.</b>\n\n"
-            "Please enable <b>Delete Messages</b> for me."
+            "⚠️ <b>I’m an admin, but I don't have permission to delete messages.</b>\n\n"
+            "Please edit my admin rights and enable <b>Delete Messages</b>."
         ),
         "setup_ok": (
-            "🎉 <b>Awesome! I’m ready.</b>\n\n"
-            "I’m now guarding <b>{group}</b>. If a blocked file appears, I’ll delete it and alert the admin team. 🛡️"
+            "🎉 <b>Awesome! I’m fully setup and ready.</b>\n\n"
+            "I’m now guarding <b>{group}</b>. If a blocked file appears, I’ll delete it and notify the admin team. 🛡️"
         ),
         "exe_removed_group": (
             "🚫 <b>Blocked file removed.</b> {user}\n"
             "🧪 <b>Reason:</b> {reason}\n"
-            "Executable files are not allowed here for everyone’s safety."
+            "Executable files (.exe, etc.) are strictly prohibited here for everyone’s safety."
         ),
         "admin_alert": (
-            "🚨 <b>Security Alert: File Caught &amp; Deleted</b>\n"
+            "🚨 <b>Security Alert: Dangerous File Deleted</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "👤 <b>Sender:</b> {sender_name} <code>{sender_id}</code>\n"
             "📄 <b>File Name:</b> <code>{file_name}</code>\n"
@@ -336,166 +336,166 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_warn": "⚠️ Warn User",
         "btn_ignore": "✅ Ignore",
         "action_ban_ok": "🔨 <b>Action taken:</b> {name} has been banned and kicked from the group.",
-        "action_ban_fail": "❌ I couldn’t ban them. Make sure I have <b>Ban Users</b> permission.",
-        "action_warn_ok": "⚠️ <b>Action taken:</b> I sent a formal warning for {name} in the group.",
-        "action_warn_fail": "❌ I couldn’t send the warning in the group.",
+        "action_ban_fail": "❌ I couldn’t ban the user. Please ensure I have <b>Ban Users</b> permission.",
+        "action_warn_ok": "⚠️ <b>Action taken:</b> A formal warning has been sent to {name} in the group.",
+        "action_warn_fail": "❌ I couldn’t send the warning message in the group.",
         "action_ignore_ok": "✅ <b>Action taken:</b> This incident has been ignored.",
         "action_done": "<i>Another admin has already handled this incident.</i>",
-        "action_expired": "<i>This incident is expired or no longer exists.</i>",
-        "action_not_admin": "❌ You are no longer an admin in that group, so this action was rejected.",
+        "action_expired": "<i>This incident has expired or no longer exists.</i>",
+        "action_not_admin": "❌ You are no longer an admin in that group. Action rejected.",
         "handled_by": "👮 <b>Handled by:</b> {admin}",
-        "delete_failed": "❌ I detected a blocked file, but I could not delete it. Please give me <b>Delete Messages</b> permission.",
+        "delete_failed": "❌ I detected a blocked file but couldn't delete it. Please give me <b>Delete Messages</b> permission.",
         "warn_in_group": (
             "⚠️ <b>Official Warning</b> — {user}\n"
-            "Sending executable files is strictly prohibited here. Please do not send them again."
+            "Sending executable programs or files is strictly prohibited here. Do not send them again."
         ),
         "help": (
             "💡 <b>EXE Remover Bot — Quick Guide</b>\n\n"
-            "/start — Choose language and settings\n"
-            "/help — Show this help\n"
-            "/status — Check bot permissions inside a group\n"
-            "/admins — See group admins and alert readiness\n"
-            "/scanner — Show scanner settings\n"
-            "/scanname &lt;filename&gt; — Test a filename\n"
-            "/memory — Show Supabase/Redis/user memory status"
+            "/start — Choose language and setup\n"
+            "/help — Show this guide\n"
+            "/status — Check my permissions in the group\n"
+            "/admins — See which admins receive alerts\n"
+            "/scanner — View file scanner settings\n"
+            "/scanname &lt;filename&gt; — Test if a filename is blocked\n"
+            "/memory — Show bot system and memory status"
         ),
-        "status_ok": "✅ Everything is running correctly. I can delete blocked files and alert admins.",
-        "status_no": "❌ I’m inactive here because I’m not admin or I don’t have <b>Delete Messages</b> permission.",
+        "status_ok": "✅ Everything is running smoothly. I can delete blocked files and alert admins.",
+        "status_no": "❌ I’m currently inactive here. I either need to be made an Admin or given <b>Delete Messages</b> permission.",
         "status_error": "❌ Permission check failed: <code>{error}</code>",
-        "admins_header": "👮 <b>Group admin alert status</b>\n",
-        "admins_enabled": "✅ alerts enabled",
-        "admins_need_start": "⚠️ needs /start in private chat",
-        "admins_note": "\n<i>Only admins who have privately started the bot can receive DM alerts.</i>",
-        "group_only": "Send this command inside a group.",
+        "admins_header": "👮 <b>Group Admin Alert Status</b>\n",
+        "admins_enabled": "✅ Alerts enabled",
+        "admins_need_start": "⚠️ Needs to send /start in private chat",
+        "admins_note": "\n<i>Note: Only admins who have started a private chat with the bot will receive DM alerts.</i>",
+        "group_only": "Please send this command inside a group.",
         "scanner_status": (
-            "🧪 <b>Suspicious File Scanner</b>\n"
-            "Enabled: <code>{enabled}</code>\n"
-            "Magic/header scan: <code>{magic}</code>\n"
-            "Archive-name scan: <code>{archive}</code>\n"
-            "Max download scan: <code>{max_bytes}</code> bytes\n"
-            "Blocked extensions: <code>{blocked}</code>\n"
-            "Dangerous extensions: <code>{dangerous}</code>\n"
-            "Archive extensions: <code>{archives}</code>\n"
-            "Trusted hash whitelist: <code>{hash_whitelist}</code>"
+            "🧪 <b>Suspicious File Scanner Settings</b>\n"
+            "Status: <code>{enabled}</code>\n"
+            "Deep File Scan (Magic/Header): <code>{magic}</code>\n"
+            "Scan Inside Archives: <code>{archive}</code>\n"
+            "Max Download Limit: <code>{max_bytes}</code> bytes\n"
+            "Blocked Formats: <code>{blocked}</code>\n"
+            "Dangerous Formats: <code>{dangerous}</code>\n"
+            "Archive Formats: <code>{archives}</code>\n"
+            "Trusted File Whitelist: <code>{hash_whitelist}</code>"
         ),
         "scanname_usage": "Usage: <code>/scanname invoice.pdf.exe</code>",
         "scanname_blocked": "🚫 <b>Blocked:</b> <code>{file}</code>\n🧪 <b>Reason:</b> {reason}",
-        "scanname_clean": "✅ <b>No filename-only danger found:</b> <code>{file}</code>",
+        "scanname_clean": "✅ <b>Safe (by filename):</b> <code>{file}</code>",
         "memory_status": (
-            "🧠 <b>Bot Memory</b>\n"
-            "Backend: <code>{backend}</code>\n"
+            "🧠 <b>System & Memory Status</b>\n"
+            "Database: <code>{backend}</code>\n"
             "Supabase: <code>{supabase}</code>\n"
             "Redis: <code>{redis}</code>\n"
-            "Known users: <code>{users}</code>\n"
-            "Saved groups: <code>{groups}</code>\n"
-            "Open incidents: <code>{incidents}</code>\n"
-            "Last Supabase save: <code>{supabase_last_save}</code>\n"
-            "Last Redis save: <code>{redis_last_save}</code>"
+            "Users saved: <code>{users}</code>\n"
+            "Groups saved: <code>{groups}</code>\n"
+            "Active incidents: <code>{incidents}</code>\n"
+            "Last Supabase sync: <code>{supabase_last_save}</code>\n"
+            "Last Redis sync: <code>{redis_last_save}</code>"
         ),
-        "unknown_error": "Something went wrong. Please try again.",
+        "unknown_error": "Oops! Something went wrong. Please try again.",
     },
     "km": {
         "select_lang": "🌐 Please choose your preferred language / សូមជ្រើសរើសភាសារបស់អ្នក៖",
-        "lang_set": "✅ បានកំណត់យក <b>ភាសាខ្មែរ</b> រួចរាល់ហើយបាទ។",
+        "lang_set": "✅ ទទួលបាន! ខ្ញុំនឹងប្រើប្រាស់ <b>ភាសាខ្មែរ</b> សម្រាប់ទំនាក់ទំនងជាមួយអ្នក។",
         "welcome": (
-            "👋 <b>សួស្ដីបាទ! ខ្ញុំជា EXE Remover Bot។</b>\n\n"
-            "🛡️ ខ្ញុំជួយការពារក្រុម ដោយលុបឯកសារ <code>.exe</code> ចោលភ្លាមៗ។\n"
-            "📢 ពេលមានអ្នកផ្ញើឯកសារប្រភេទនេះ ខ្ញុំនឹងផ្ញើ DM ទៅ Admin ជាមួយជម្រើស <b>Ban</b>, <b>Warn</b>, ឬ <b>Ignore</b>។\n\n"
-            "➡️ សូមបន្ថែមខ្ញុំទៅក្រុម ហើយផ្តល់សិទ្ធិ <b>Delete Messages</b>។"
+            "👋 <b>សួស្ដី! ខ្ញុំជា EXE Remover Bot។</b>\n\n"
+            "🛡️ ខ្ញុំជួយការពារគ្រុបរបស់អ្នក ដោយលុបចោលរាល់ឯកសារ <code>.exe</code> និងកម្មវិធីដែលមានហានិភ័យភ្លាមៗ។\n"
+            "📢 បើមានអ្នកផ្ញើឯកសារប្រភេទនេះ ខ្ញុំនឹងលុបវា រួចផ្ញើសារ (DM) ទៅកាន់ Admin ដើម្បីសម្រេចចិត្ត៖ <b>បណ្ដេញចេញ (Ban)</b>, <b>ព្រមាន (Warn)</b> ឬ <b>មិនអើពើ (Ignore)</b>។\n\n"
+            "➡️ សូម Add ខ្ញុំចូលគ្រុបរបស់អ្នក រួចផ្តល់សិទ្ធិ <b>Delete Messages</b> ជាការស្រេច។"
         ),
-        "add_btn": "➕ បន្ថែមខ្ញុំទៅក្នុងក្រុម",
-        "check_btn": "🔄 ពិនិត្យសិទ្ធិ",
-        "private_start": "សូមបើកឆាតឯកជនជាមួយខ្ញុំ ដើម្បីជ្រើសរើសភាសា និងកំណត់ការប្រើប្រាស់។",
-        "no_group": "⚠️ ខ្ញុំមិនទាន់ឃើញក្រុមណាមួយទេ។ សូមបន្ថែមខ្ញុំទៅក្រុមជាមុនសិន រួចចុច <b>ពិនិត្យសិទ្ធិ</b>។",
+        "add_btn": "➕ Add ខ្ញុំចូលគ្រុប",
+        "check_btn": "🔄 ពិនិត្យមើលសិទ្ធិ (Permissions)",
+        "private_start": "សូមឆាតមកកាន់ខ្ញុំផ្ទាល់ (Private Chat) ដើម្បីប្តូរភាសា និងរៀបចំការកំណត់ផ្សេងៗ។",
+        "no_group": "⚠️ ខ្ញុំមិនទាន់ឃើញគ្រុបរបស់អ្នកទេ។ សូម Add ខ្ញុំចូលគ្រុបជាមុនសិន រួចចុចប៉ូតុង <b>ពិនិត្យមើលសិទ្ធិ</b>។",
         "not_admin": (
-            "❌ <b>ខ្ញុំមិនទាន់ជា Admin ក្នុងក្រុមរបស់អ្នកទេ។</b>\n\n"
-            "សូមចូល Group Settings → Administrators → Add Member → ជ្រើសខ្ញុំ ហើយបើកសិទ្ធិ <b>Delete Messages</b>។"
+            "❌ <b>ខ្ញុំមិនទាន់ជា Admin នៅក្នុងគ្រុបរបស់អ្នកនៅឡើយទេ។</b>\n\n"
+            "សូមចូលទៅកាន់ Group Settings → Administrators → Add Member → ជ្រើសរើសយកខ្ញុំ រួចបើកសិទ្ធិ <b>Delete Messages</b>។"
         ),
         "no_delete_perm": (
-            "⚠️ <b>ខ្ញុំជា Admin ប៉ុន្តែមិនទាន់មានសិទ្ធិលុបសារ។</b>\n\n"
-            "សូមបើកសិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំផងបាទ។"
+            "⚠️ <b>ខ្ញុំជា Admin ហើយ ប៉ុន្តែមិនទាន់មានសិទ្ធិលុបសារទេ។</b>\n\n"
+            "សូមចូលទៅកែសិទ្ធិ Admin របស់ខ្ញុំ ដោយបើក <b>Delete Messages</b> ឱ្យបានត្រឹមត្រូវ។"
         ),
         "setup_ok": (
-            "🎉 <b>រួចរាល់ហើយបាទ!</b>\n\n"
-            "ឥឡូវនេះខ្ញុំកំពុងការពារក្រុម <b>{group}</b>។ បើមានឯកសារហាមឃាត់ ខ្ញុំនឹងលុបវា និងរាយការណ៍ជូន Admin។ 🛡️"
+            "🎉 <b>រួចរាល់រាល់! ខ្ញុំត្រៀមខ្លួនរួចរាល់ហើយ។</b>\n\n"
+            "ពេលនេះខ្ញុំកំពុងការពារគ្រុប <b>{group}</b>។ បើមាននរណាផ្ញើឯកសារហាមឃាត់ ខ្ញុំនឹងលុបចោល ហើយរាយការណ៍ជូន Admin ភ្លាមៗ។ 🛡️"
         ),
         "exe_removed_group": (
-            "🚫 <b>បានលុបឯកសារហាមឃាត់។</b> {user}\n"
-            "🧪 <b>មូលហេតុ:</b> {reason}\n"
-            "ឯកសារដែលអាចដំណើរការបាន មិនត្រូវបានអនុញ្ញាតក្នុងក្រុមនេះទេ។"
+            "🚫 <b>ឯកសារត្រូវបានលុបចោល។</b> {user}\n"
+            "🧪 <b>មូលហេតុ៖</b> {reason}\n"
+            "ឯកសារប្រភេទកម្មវិធី (.exe, ។ល។) មិនត្រូវបានអនុញ្ញាតឱ្យផ្ញើឡើយ ដើម្បីសុវត្ថិភាពទាំងអស់គ្នា។"
         ),
         "admin_alert": (
-            "🚨 <b>ការជូនដំណឹងសន្តិសុខ៖ រកឃើញ និងលុបឯកសារ</b>\n"
+            "🚨 <b>ជូនដំណឹងសន្តិសុខ៖ រកឃើញ និងលុបឯកសារគ្រោះថ្នាក់</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "👤 <b>អ្នកផ្ញើ:</b> {sender_name} <code>{sender_id}</code>\n"
-            "📄 <b>ឈ្មោះឯកសារ:</b> <code>{file_name}</code>\n"
-            "🧪 <b>មូលហេតុ:</b> {scan_result}\n"
-            "💬 <b>ក្រុម:</b> {group_name} <code>{group_id}</code>\n"
-            "📅 <b>ម៉ោង:</b> {time} UTC\n"
+            "👤 <b>អ្នកផ្ញើ៖</b> {sender_name} <code>{sender_id}</code>\n"
+            "📄 <b>ឈ្មោះឯកសារ៖</b> <code>{file_name}</code>\n"
+            "🧪 <b>មូលហេតុ៖</b> {scan_result}\n"
+            "💬 <b>គ្រុប៖</b> {group_name} <code>{group_id}</code>\n"
+            "📅 <b>ម៉ោង៖</b> {time} UTC\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "តើ Admin ចង់ចាត់ការបែបណា?"
+            "តើ Admin ចង់ចាត់វិធានការបែបណា?"
         ),
-        "btn_ban": "🔨 Ban User",
-        "btn_warn": "⚠️ Warn User",
-        "btn_ignore": "✅ Ignore",
-        "action_ban_ok": "🔨 <b>បានចាត់ការ:</b> បាន Ban និងបណ្តេញ {name} ចេញពីក្រុម។",
-        "action_ban_fail": "❌ ខ្ញុំមិនអាច Ban បានទេ។ សូមពិនិត្យសិទ្ធិ <b>Ban Users</b>។",
-        "action_warn_ok": "⚠️ <b>បានចាត់ការ:</b> ខ្ញុំបានផ្ញើសារព្រមានទៅក្រុមសម្រាប់ {name}។",
-        "action_warn_fail": "❌ ខ្ញុំមិនអាចផ្ញើសារព្រមានទៅក្រុមបានទេ។",
-        "action_ignore_ok": "✅ <b>បានចាត់ការ:</b> បានមិនអើពើករណីនេះ។",
-        "action_done": "<i>Admin ផ្សេងបានចាត់ការករណីនេះរួចរាល់ហើយ។</i>",
-        "action_expired": "<i>ករណីនេះផុតកំណត់ ឬមិនមានទៀតទេ។</i>",
-        "action_not_admin": "❌ អ្នកមិនមែនជា Admin ក្នុងក្រុមនោះទៀតទេ ដូច្នេះមិនអាចចាត់ការបាន។",
-        "handled_by": "👮 <b>ចាត់ការដោយ:</b> {admin}",
-        "delete_failed": "❌ ខ្ញុំបានរកឃើញឯកសារហាមឃាត់ ប៉ុន្តែមិនអាចលុបវាបានទេ។ សូមផ្តល់សិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំ។",
+        "btn_ban": "🔨 បណ្ដេញចេញ (Ban)",
+        "btn_warn": "⚠️ ព្រមាន (Warn)",
+        "btn_ignore": "✅ មិនអើពើ (Ignore)",
+        "action_ban_ok": "🔨 <b>បានចាត់ការ៖</b> {name} ត្រូវបាន Ban និងបណ្តេញចេញពីគ្រុបរួចរាល់។",
+        "action_ban_fail": "❌ ខ្ញុំមិនអាច Ban គាត់បានទេ។ សូមប្រាកដថាខ្ញុំមានសិទ្ធិ <b>Ban Users</b>។",
+        "action_warn_ok": "⚠️ <b>បានចាត់ការ៖</b> ខ្ញុំបានផ្ញើសារព្រមានទៅកាន់ {name} នៅក្នុងគ្រុបរួចរាល់។",
+        "action_warn_fail": "❌ ខ្ញុំមិនអាចផ្ញើសារព្រមានចូលក្នុងគ្រុបបានទេ។",
+        "action_ignore_ok": "✅ <b>បានចាត់ការ៖</b> ករណីនេះត្រូវបានរំលង និងមិនអើពើ។",
+        "action_done": "<i>Admin ផ្សេងបានដោះស្រាយករណីនេះរួចរាល់ហើយ។</i>",
+        "action_expired": "<i>ករណីនេះបានផុតកំណត់ ឬមិនមានទិន្នន័យទៀតទេ។</i>",
+        "action_not_admin": "❌ អ្នកមិនមែនជា Admin ក្នុងគ្រុបនោះទៀតទេ ដូច្នេះមិនអាចបញ្ជាបានឡើយ។",
+        "handled_by": "👮 <b>ដោះស្រាយដោយ៖</b> {admin}",
+        "delete_failed": "❌ ខ្ញុំបានរកឃើញឯកសារហាមឃាត់ ប៉ុន្តែមិនអាចលុបវាបានទេ។ សូមជួយបើកសិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំផង។",
         "warn_in_group": (
             "⚠️ <b>ការព្រមានជាផ្លូវការ</b> — {user}\n"
-            "ការផ្ញើឯកសារដែលអាចដំណើរការបាន ត្រូវបានហាមឃាត់ក្នុងក្រុមនេះ។ សូមកុំផ្ញើវាម្តងទៀត។"
+            "ការផ្ញើឯកសារប្រភេទកម្មវិធី (.exe) គឺត្រូវបានហាមឃាត់ដាច់ខាតនៅក្នុងគ្រុបនេះ។ សូមកុំផ្ញើវាម្តងទៀតឱ្យសោះ។"
         ),
         "help": (
-            "💡 <b>EXE Remover Bot — ជំនួយ</b>\n\n"
-            "/start — ជ្រើសរើសភាសា និងកំណត់\n"
-            "/help — បង្ហាញជំនួយ\n"
-            "/status — ពិនិត្យសិទ្ធិ Bot ក្នុងក្រុម\n"
-            "/admins — មើលស្ថានភាព Admin ទទួល Alert\n"
-            "/scanner — មើលការកំណត់ Scanner\n"
-            "/scanname &lt;filename&gt; — សាកល្បងឈ្មោះឯកសារ\n"
-            "/memory — មើលស្ថានភាព Supabase/Redis/User memory"
+            "💡 <b>EXE Remover Bot — ជំនួយសង្ខេប</b>\n\n"
+            "/start — ជ្រើសរើសភាសា និងរៀបចំការកំណត់\n"
+            "/help — បង្ហាញបញ្ជីជំនួយនេះ\n"
+            "/status — ពិនិត្យសិទ្ធិរបស់ Bot នៅក្នុងគ្រុប\n"
+            "/admins — មើលបញ្ជី Admin ដែលទទួលសេចក្តីរាយការណ៍\n"
+            "/scanner — មើលការកំណត់ប្រព័ន្ធ Scan ឯកសារ\n"
+            "/scanname &lt;filename&gt; — ធ្វើតេស្តសាកល្បងឈ្មោះឯកសារ\n"
+            "/memory — ពិនិត្យមើលប្រព័ន្ធ System និងអង្គចងចាំរបស់ Bot"
         ),
-        "status_ok": "✅ ដំណើរការត្រឹមត្រូវ។ ខ្ញុំអាចលុបឯកសារហាមឃាត់ និងរាយការណ៍ Admin បាន។",
-        "status_no": "❌ ខ្ញុំមិនដំណើរការនៅទីនេះទេ ព្រោះមិនមែនជា Admin ឬមិនមានសិទ្ធិ <b>Delete Messages</b>។",
-        "status_error": "❌ ពិនិត្យសិទ្ធិបរាជ័យ: <code>{error}</code>",
-        "admins_header": "👮 <b>ស្ថានភាព Admin ទទួល Alert</b>\n",
-        "admins_enabled": "✅ បើកទទួល Alert",
-        "admins_need_start": "⚠️ ត្រូវ /start ក្នុងឆាតឯកជន",
-        "admins_note": "\n<i>មានតែ Admin ដែលបាន /start ជាមួយ Bot ក្នុងឆាតឯកជនប៉ុណ្ណោះ ទើបទទួលបាន DM Alert។</i>",
-        "group_only": "សូមផ្ញើ command នេះនៅក្នុងក្រុម។",
+        "status_ok": "✅ ដំណើរការល្អជាប្រក្រតី។ ខ្ញុំអាចលុបឯកសារហាមឃាត់ និងរាយការណ៍ជូន Admin បាន។",
+        "status_no": "❌ ខ្ញុំមិនទាន់អាចដំណើរការបានទេ។ ខ្ញុំត្រូវតែជា Admin និងមានសិទ្ធិ <b>Delete Messages</b> ជាមុនសិន។",
+        "status_error": "❌ ការពិនិត្យសិទ្ធិមានបញ្ហា៖ <code>{error}</code>",
+        "admins_header": "👮 <b>ស្ថានភាព Admin ទទួលសេចក្តីរាយការណ៍</b>\n",
+        "admins_enabled": "✅ ត្រៀមទទួលការរាយការណ៍",
+        "admins_need_start": "⚠️ ត្រូវចុច /start ក្នុង Private Chat ជាមុនសិន",
+        "admins_note": "\n<i>ចំណាំ៖ មានតែ Admin ដែលបានចុច /start ឆាតផ្ទាល់ជាមួយ Bot ប៉ុណ្ណោះ ទើបអាចទទួលបានសាររាយការណ៍ (DM Alert)។</i>",
+        "group_only": "សូមផ្ញើ Command នេះនៅក្នុងគ្រុបផ្ទាល់។",
         "scanner_status": (
-            "🧪 <b>Suspicious File Scanner</b>\n"
-            "បើក: <code>{enabled}</code>\n"
-            "ពិនិត្យ header: <code>{magic}</code>\n"
-            "ពិនិត្យឈ្មោះក្នុង archive: <code>{archive}</code>\n"
-            "ទំហំ download ស្កេនអតិបរមា: <code>{max_bytes}</code> bytes\n"
-            "Extension ដែល block: <code>{blocked}</code>\n"
-            "Extension គ្រោះថ្នាក់: <code>{dangerous}</code>\n"
-            "Extension archive: <code>{archives}</code>\n"
-            "Trusted hash whitelist: <code>{hash_whitelist}</code>"
+            "🧪 <b>ការកំណត់ប្រព័ន្ធស្កេនឯកសារ (Scanner)</b>\n"
+            "ស្ថានភាពបើក/បិទ៖ <code>{enabled}</code>\n"
+            "ស្កេនស៊ីជម្រៅ (Magic/Header)៖ <code>{magic}</code>\n"
+            "ស្កេនឯកសារក្នុង Archive៖ <code>{archive}</code>\n"
+            "ទំហំ Download ស្កេនធំបំផុត៖ <code>{max_bytes}</code> bytes\n"
+            "ប្រភេទកន្ទុយដែល Block ចោល៖ <code>{blocked}</code>\n"
+            "ប្រភេទកន្ទុយគ្រោះថ្នាក់៖ <code>{dangerous}</code>\n"
+            "ប្រភេទកន្ទុយ Archive៖ <code>{archives}</code>\n"
+            "មុខងារហ្វាលដែលទុកចិត្ត (Whitelist)៖ <code>{hash_whitelist}</code>"
         ),
-        "scanname_usage": "ប្រើ: <code>/scanname invoice.pdf.exe</code>",
-        "scanname_blocked": "🚫 <b>Blocked:</b> <code>{file}</code>\n🧪 <b>មូលហេតុ:</b> {reason}",
-        "scanname_clean": "✅ <b>រកមិនឃើញគ្រោះថ្នាក់តាមឈ្មោះ:</b> <code>{file}</code>",
+        "scanname_usage": "របៀបប្រើ៖ <code>/scanname invoice.pdf.exe</code>",
+        "scanname_blocked": "🚫 <b>ត្រូវបាន Block៖</b> <code>{file}</code>\n🧪 <b>មូលហេតុ៖</b> {reason}",
+        "scanname_clean": "✅ <b>សុវត្ថិភាព (យោងតាមឈ្មោះហ្វាល)៖</b> <code>{file}</code>",
         "memory_status": (
-            "🧠 <b>Bot Memory</b>\n"
-            "Backend: <code>{backend}</code>\n"
-            "Supabase: <code>{supabase}</code>\n"
-            "Redis: <code>{redis}</code>\n"
-            "អ្នកប្រើប្រាស់ដែលបានចងចាំ: <code>{users}</code>\n"
-            "ក្រុមដែលបានរក្សាទុក: <code>{groups}</code>\n"
-            "ករណីកំពុងបើក: <code>{incidents}</code>\n"
-            "Supabase save ចុងក្រោយ: <code>{supabase_last_save}</code>\n"
-            "Redis save ចុងក្រោយ: <code>{redis_last_save}</code>"
+            "🧠 <b>ស្ថានភាព System និងអង្គចងចាំ</b>\n"
+            "ទិន្នន័យ (Database)៖ <code>{backend}</code>\n"
+            "Supabase៖ <code>{supabase}</code>\n"
+            "Redis៖ <code>{redis}</code>\n"
+            "ចំនួន User ដែលបានកត់ត្រា៖ <code>{users}</code>\n"
+            "ចំនួនគ្រុបដែលបានរក្សាទុក៖ <code>{groups}</code>\n"
+            "ករណីកំពុងរង់ចាំដោះស្រាយ៖ <code>{incidents}</code>\n"
+            "Sync ទៅ Supabase ចុងក្រោយ៖ <code>{supabase_last_save}</code>\n"
+            "Sync ទៅ Redis ចុងក្រោយ៖ <code>{redis_last_save}</code>"
         ),
-        "unknown_error": "មានបញ្ហាមួយកើតឡើង។ សូមព្យាយាមម្តងទៀត។",
+        "unknown_error": "អូស! មានបញ្ហាអ្វីមួយកើតឡើង។ សូមព្យាយាមម្តងទៀតបន្តិចក្រោយ។",
     },
 }
 
