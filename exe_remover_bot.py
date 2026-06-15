@@ -258,6 +258,7 @@ SUPABASE_CLIENT: httpx.AsyncClient | None = None
 SUPABASE_AVAILABLE = False
 SUPABASE_LAST_SAVE_MONOTONIC = 0.0
 SUPABASE_LAST_SAVE_UTC = "never"
+PENDING_MEMORY_SAVE_TASKS: set[asyncio.Task[Any]] = set()
 
 
 @dataclass(slots=True)
@@ -883,6 +884,7 @@ GROUP_ADMIN_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
         "allowed_prompt_add": "✅ <b>Allow formats</b>\n\nSend extension names separated by spaces or commas.\nExample: <code>.zip .pdf</code>\n\nUse Home or Back to cancel.",
         "allowed_prompt_edit": "✏️ <b>Edit allowed list</b>\n\nSend the complete new allowed list.\nExample: <code>.zip .pdf</code>\n\nUse Home or Back to cancel.",
         "allowed_saved": "✅ Allowed format list updated.",
+        "allowed_invalid": "❌ Hard-blocked executable formats cannot be added to Allowed Formats. Use Trusted File Hashes to approve one exact safe file instead.",
         "allowed_removed": "✅ Removed <code>{ext}</code> from allowed formats.",
         "allowed_cleared": "✅ Allowed formats cleared.",
         "auto_title": "🤖 <b>Auto Action Rules</b>\n💬 <b>{group}</b>\n\nMode: <code>{mode}</code>\nWarn threshold: <code>{warn_threshold}</code>\nMute threshold: <code>{mute_threshold}</code>\nBan threshold: <code>{ban_threshold}</code>\nMute length: <code>{mute_minutes} minutes</code>\n\nRecommended: <b>Smart</b> = warn first, mute repeated offenders, ban heavy repeat offenders.",
@@ -938,6 +940,7 @@ GROUP_ADMIN_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
         "allowed_prompt_add": "✅ <b>Allow formats</b>\n\nផ្ញើ extension ដោយបំបែកជាចន្លោះ ឬ comma។\nឧទាហរណ៍: <code>.zip .pdf</code>\n\nចុច Home ឬ Back ដើម្បីបោះបង់។",
         "allowed_prompt_edit": "✏️ <b>Edit allowed list</b>\n\nផ្ញើ allowed list ថ្មីទាំងមូល។\nឧទាហរណ៍: <code>.zip .pdf</code>\n\nចុច Home ឬ Back ដើម្បីបោះបង់។",
         "allowed_saved": "✅ បានកែ allowed format list។",
+        "allowed_invalid": "❌ មិនអាចដាក់ executable formats ដែល hard-block ទៅ Allowed Formats បានទេ។ សូមប្រើ Trusted File Hashes ដើម្បីអនុញ្ញាត file សុវត្ថិភាពជាក់លាក់មួយ។",
         "allowed_removed": "✅ បានដក <code>{ext}</code> ចេញពី allowed formats។",
         "allowed_cleared": "✅ បានសម្អាត allowed formats។",
         "auto_title": "🤖 <b>Auto Action Rules</b>\n💬 <b>{group}</b>\n\nMode: <code>{mode}</code>\nWarn threshold: <code>{warn_threshold}</code>\nMute threshold: <code>{mute_threshold}</code>\nBan threshold: <code>{ban_threshold}</code>\nMute length: <code>{mute_minutes} minutes</code>\n\nណែនាំ: <b>Smart</b> = warn, mute អ្នកធ្វើម្ដងហើយម្ដងទៀត, ban អ្នកធ្ងន់។",
@@ -1308,6 +1311,8 @@ def sanitize_bot_data_in_place(bot_data: dict[str, Any]) -> None:
                 if raw_key != normalized_key:
                     bucket[normalized_key] = bucket.pop(raw_key)
 
+    ensure_runtime_config(bot_data)
+
 
 async def init_redis_memory(application: Application) -> None:
     """Connect to Redis and hydrate bot_data. Safe fallback when Redis is unavailable."""
@@ -1361,21 +1366,17 @@ async def init_redis_memory(application: Application) -> None:
         logger.exception("Could not load Redis memory. Continuing with current local state", exc_info=True)
 
 
-async def save_bot_data_to_redis(
-    bot_data: dict[str, Any],
+async def save_payload_to_redis(
+    payload: dict[str, Any],
     *,
     reason: str = "manual",
     force: bool = False,
-    caller_holds_lock: bool = False,
 ) -> bool:
-    """Persist durable memory to Redis without crashing handlers.
+    """Persist an already-snapshotted durable payload to Redis.
 
-    Lock order is always safe:
-    - If caller_holds_lock=True, the caller already owns BOT_DATA_LOCK, so we
-      serialize from that stable state and only take REDIS_SAVE_LOCK for I/O.
-    - Otherwise, we take a short BOT_DATA_LOCK snapshot first, release it, then
-      write to Redis. This prevents Redis/network latency from blocking normal
-      state readers.
+    This helper performs network I/O without touching BOT_DATA_LOCK.  It is used
+    by UI handlers that already mutated bot_data under the lock, so slow Redis
+    writes cannot freeze button callbacks or group moderation.
     """
     global REDIS_LAST_SAVE_MONOTONIC, REDIS_LAST_SAVE_UTC
 
@@ -1388,14 +1389,9 @@ async def save_bot_data_to_redis(
             return False
 
     try:
-        if caller_holds_lock:
-            payload = export_bot_data_for_storage(bot_data)
-        else:
-            async with BOT_DATA_LOCK:
-                payload = export_bot_data_for_storage(bot_data)
         encoded = encode_redis_state(payload)
     except Exception:
-        logger.exception("Redis memory snapshot failed reason=%s", reason, exc_info=True)
+        logger.exception("Redis memory payload encode failed reason=%s", reason, exc_info=True)
         return False
 
     async with REDIS_SAVE_LOCK:
@@ -1410,6 +1406,55 @@ async def save_bot_data_to_redis(
             return False
 
 
+async def save_bot_data_to_redis(
+    bot_data: dict[str, Any],
+    *,
+    reason: str = "manual",
+    force: bool = False,
+    caller_holds_lock: bool = False,
+) -> bool:
+    """Snapshot durable memory, then persist it to Redis without crashing handlers."""
+    try:
+        if caller_holds_lock:
+            payload = export_bot_data_for_storage(bot_data)
+        else:
+            async with BOT_DATA_LOCK:
+                payload = export_bot_data_for_storage(bot_data)
+    except Exception:
+        logger.exception("Redis memory snapshot failed reason=%s", reason, exc_info=True)
+        return False
+    return await save_payload_to_redis(payload, reason=reason, force=force)
+
+async def _persist_payload_to_backends(payload: dict[str, Any], *, reason: str, force: bool) -> None:
+    """Write a snapshot payload to all enabled durable backends."""
+    await save_payload_to_supabase(payload, reason=reason, force=force)
+    await save_payload_to_redis(payload, reason=reason, force=force)
+
+
+def _schedule_memory_payload_save(context: Any, payload: dict[str, Any], *, reason: str, force: bool) -> None:
+    """Schedule persistence without keeping BOT_DATA_LOCK blocked on network I/O."""
+    try:
+        app = getattr(context, "application", context)
+        task = app.create_task(_persist_payload_to_backends(payload, reason=reason, force=force))
+        if task is None:
+            task = asyncio.create_task(_persist_payload_to_backends(payload, reason=reason, force=force))
+    except Exception:
+        task = asyncio.create_task(_persist_payload_to_backends(payload, reason=reason, force=force))
+    PENDING_MEMORY_SAVE_TASKS.add(task)
+    task.add_done_callback(PENDING_MEMORY_SAVE_TASKS.discard)
+
+
+async def drain_pending_memory_saves(timeout: float = 5.0) -> None:
+    """Flush best-effort background memory saves before shutdown closes clients."""
+    pending = [task for task in list(PENDING_MEMORY_SAVE_TASKS) if not task.done()]
+    if not pending:
+        return
+    try:
+        await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning("Timed out while waiting for %s pending memory save task(s)", len(pending))
+
+
 async def persist_context_memory(
     context: Any,
     *,
@@ -1417,11 +1462,24 @@ async def persist_context_memory(
     force: bool = False,
     caller_holds_lock: bool = False,
 ) -> None:
-    # Fan out durable state saves. Every existing handler can keep calling this
-    # one function; Redis, Supabase, and local PicklePersistence stay decoupled.
-    await save_bot_data_to_supabase(context.bot_data, reason=reason, force=force, caller_holds_lock=caller_holds_lock)
-    await save_bot_data_to_redis(context.bot_data, reason=reason, force=force, caller_holds_lock=caller_holds_lock)
+    """Persist durable bot_data to Supabase/Redis.
 
+    When the caller already holds BOT_DATA_LOCK, this function snapshots the data
+    and schedules the network writes in the background.  That avoids the previous
+    UX bug where button callbacks could feel frozen while Redis/Supabase was slow.
+    Periodic saves and shutdown still await the write path directly.
+    """
+    if caller_holds_lock:
+        try:
+            payload = export_bot_data_for_storage(context.bot_data)
+        except Exception:
+            logger.exception("Durable memory snapshot failed reason=%s", reason, exc_info=True)
+            return
+        _schedule_memory_payload_save(context, payload, reason=reason, force=force)
+        return
+
+    await save_bot_data_to_supabase(context.bot_data, reason=reason, force=force, caller_holds_lock=False)
+    await save_bot_data_to_redis(context.bot_data, reason=reason, force=force, caller_holds_lock=False)
 
 async def close_redis_memory() -> None:
     global REDIS_CLIENT, REDIS_AVAILABLE
@@ -1537,14 +1595,13 @@ async def init_supabase_memory(application: Application) -> None:
         await close_supabase_memory()
 
 
-async def save_bot_data_to_supabase(
-    bot_data: dict[str, Any],
+async def save_payload_to_supabase(
+    payload: dict[str, Any],
     *,
     reason: str = "manual",
     force: bool = False,
-    caller_holds_lock: bool = False,
 ) -> bool:
-    """Upsert durable bot memory into Supabase without blocking handlers."""
+    """Persist an already-snapshotted durable payload to Supabase."""
     global SUPABASE_LAST_SAVE_MONOTONIC, SUPABASE_LAST_SAVE_UTC
 
     if not (SUPABASE_AVAILABLE and SUPABASE_CLIENT is not None):
@@ -1556,18 +1613,13 @@ async def save_bot_data_to_supabase(
             return False
 
     try:
-        if caller_holds_lock:
-            payload = export_bot_data_for_storage(bot_data)
-        else:
-            async with BOT_DATA_LOCK:
-                payload = export_bot_data_for_storage(bot_data)
         row = {
             "state_key": SUPABASE_STATE_KEY,
             "payload": _json_safe(payload),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
-        logger.exception("Supabase memory snapshot failed reason=%s", reason, exc_info=True)
+        logger.exception("Supabase memory payload build failed reason=%s", reason, exc_info=True)
         return False
 
     try:
@@ -1595,6 +1647,25 @@ async def save_bot_data_to_supabase(
         logger.exception("Supabase memory save failed reason=%s", reason, exc_info=True)
         return False
 
+
+async def save_bot_data_to_supabase(
+    bot_data: dict[str, Any],
+    *,
+    reason: str = "manual",
+    force: bool = False,
+    caller_holds_lock: bool = False,
+) -> bool:
+    """Snapshot durable memory, then upsert it into Supabase."""
+    try:
+        if caller_holds_lock:
+            payload = export_bot_data_for_storage(bot_data)
+        else:
+            async with BOT_DATA_LOCK:
+                payload = export_bot_data_for_storage(bot_data)
+    except Exception:
+        logger.exception("Supabase memory snapshot failed reason=%s", reason, exc_info=True)
+        return False
+    return await save_payload_to_supabase(payload, reason=reason, force=force)
 
 async def close_supabase_memory() -> None:
     global SUPABASE_CLIENT, SUPABASE_AVAILABLE
@@ -1895,9 +1966,11 @@ def filename_suffixes(file_name: str) -> list[str]:
         if 2 <= len(compound) <= 64:
             candidates.append(compound)
 
-    # For long chains, include individual middle suffixes so invoice.pdf.exe.zip
-    # still catches .exe without treating .tar.gz as [".tar", ".gz"].
-    if len(ext_parts) >= 3:
+    # Include individual non-final suffixes so invoice.exe.zip and
+    # invoice.pdf.exe.zip both catch the hidden .exe before the archive suffix.
+    # Harmless compound archives such as .tar.gz remain safe because .tar is not
+    # in DANGEROUS_EXTENSIONS by default.
+    if len(ext_parts) >= 2:
         for part in ext_parts[:-1]:
             candidates.append(f".{part}")
 
@@ -2818,6 +2891,12 @@ def _dedupe_valid_extensions(values: Iterable[Any], *, limit: int | None = None)
     return cleaned
 
 
+def _dedupe_allowed_extensions(values: Iterable[Any], *, limit: int | None = None) -> list[str]:
+    """Allowed formats may bypass only custom blocks, never hard executable blocks."""
+    hard_blocked = set(BLOCKED_EXTENSIONS)
+    return [ext for ext in _dedupe_valid_extensions(values, limit=limit) if ext not in hard_blocked]
+
+
 def parse_extensions_from_text(text: str) -> list[str]:
     tokens = re.split(r"[\s,;|]+", text.strip().casefold())
     return _dedupe_valid_extensions(tokens, limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
@@ -2956,7 +3035,10 @@ def get_group_settings(bot_data: dict[str, Any], chat_id: int) -> dict[str, Any]
     for list_key in ("allowed_extensions", "custom_blocked_extensions"):
         if not isinstance(settings.get(list_key), list):
             settings[list_key] = []
-        settings[list_key] = _dedupe_valid_extensions(settings.get(list_key, []), limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
+        if list_key == "allowed_extensions":
+            settings[list_key] = _dedupe_allowed_extensions(settings.get(list_key, []), limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
+        else:
+            settings[list_key] = _dedupe_valid_extensions(settings.get(list_key, []), limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
     if not isinstance(settings.get("trusted_file_hashes"), list):
         settings["trusted_file_hashes"] = []
     settings["trusted_file_hashes"] = _dedupe_valid_hashes(settings.get("trusted_file_hashes", []), limit=max_trusted_file_hashes(bot_data))
@@ -4450,15 +4532,19 @@ async def private_text_flow_handler(update: Update, context: ContextTypes.DEFAUL
         if not digest:
             await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_invalid"))
             return
+        limit_reached = False
         async with BOT_DATA_LOCK:
             settings = get_group_settings(context.bot_data, chat_id)
             if digest not in settings.get("trusted_file_hashes", []) and len(settings.get("trusted_file_hashes", [])) >= max_trusted_file_hashes(context.bot_data):
-                await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_limit"))
-                return
-            add_trusted_file_hash(context.bot_data, chat_id, digest, added_by=user.id, file_name="manual hash")
-            state = get_user_state(context.bot_data, user.id)
-            state.pop("pending_format_edit", None)
-            await persist_context_memory(context, reason="trusted_hash_add_manual", force=True, caller_holds_lock=True)
+                limit_reached = True
+            else:
+                add_trusted_file_hash(context.bot_data, chat_id, digest, added_by=user.id, file_name="manual hash")
+                state = get_user_state(context.bot_data, user.id)
+                state.pop("pending_format_edit", None)
+                await persist_context_memory(context, reason="trusted_hash_add_manual", force=True, caller_holds_lock=True)
+        if limit_reached:
+            await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_limit"))
+            return
         await render_trusted_hash_panel(update, context, user.id, chat_id, notice=tr(context.bot_data, user.id, "trusted_hash_saved"))
         return
 
@@ -4466,15 +4552,21 @@ async def private_text_flow_handler(update: Update, context: ContextTypes.DEFAUL
     if not parsed:
         await safe_reply(update, tr(context.bot_data, user.id, "formats_invalid"))
         return
+    if mode in {"allow_add", "allow_edit"}:
+        parsed = _dedupe_allowed_extensions(parsed, limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
+        if not parsed:
+            await safe_reply(update, tr(context.bot_data, user.id, "allowed_invalid"))
+            return
 
     async with BOT_DATA_LOCK:
         settings = get_group_settings(context.bot_data, chat_id)
         if mode in {"allow_add", "allow_edit"}:
+            parsed_allowed = parsed
             current = settings.get("allowed_extensions", [])
             if mode == "allow_edit":
-                settings["allowed_extensions"] = parsed[:MAX_CUSTOM_BLOCKED_EXTENSIONS]
+                settings["allowed_extensions"] = parsed_allowed[:MAX_CUSTOM_BLOCKED_EXTENSIONS]
             else:
-                settings["allowed_extensions"] = _dedupe_valid_extensions([*current, *parsed], limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
+                settings["allowed_extensions"] = _dedupe_allowed_extensions([*current, *parsed_allowed], limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
             save_reason = "allowed_formats_save"
         else:
             current = settings.get("custom_blocked_extensions", [])
@@ -4532,13 +4624,23 @@ def apply_group_scan_policy(bot_data: dict[str, Any], chat_id: int, scan: FileSc
     suffixes = filename_suffixes(scan.file_name)
     last_ext = suffixes[-1] if suffixes else matched_ext
     allowed_exts = set(settings.get("allowed_extensions", []))
-    allowed = matched_ext if matched_ext in allowed_exts else next((ext for ext in suffixes if ext in allowed_exts), "")
-    if allowed:
-        return replace(scan, blocked=False, reason_code="allowed_extension", reason_display=f"allowed by group settings: {allowed}")
+    allowed_match = last_ext if last_ext in allowed_exts else ""
 
     custom_blocked = set(settings.get("custom_blocked_extensions", []))
     custom_match = last_ext if last_ext in custom_blocked else next((ext for ext in suffixes if ext in custom_blocked), "")
     if custom_match:
+        # Allowed formats are meant to bypass only custom delete formats.
+        # They must not override the core scanner, e.g. .exe, PE magic bytes,
+        # or invoice.exe.zip. Exact executable exceptions belong in the
+        # trusted SHA256 whitelist above.
+        if allowed_match == custom_match and not scan.blocked:
+            return replace(
+                scan,
+                blocked=False,
+                reason_code="allowed_extension",
+                reason_display=f"allowed by group settings: {allowed_match}",
+                matched_extension=allowed_match,
+            )
         return replace(
             scan,
             blocked=True,
@@ -5537,7 +5639,9 @@ async def post_init(application: Application) -> None:
 
 async def post_shutdown(application: Application) -> None:
     global KEEP_AWAKE_CLIENT
+    await drain_pending_memory_saves(timeout=5.0)
     await persist_context_memory(application, reason="shutdown", force=True)
+    await drain_pending_memory_saves(timeout=5.0)
     await close_supabase_memory()
     await close_redis_memory()
     if KEEP_AWAKE_CLIENT is not None:
