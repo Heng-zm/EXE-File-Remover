@@ -189,6 +189,14 @@ SUSPICIOUS_SCANNER_ENABLED = _env_bool("SUSPICIOUS_SCANNER_ENABLED", True)
 SUSPICIOUS_MAGIC_SCAN_ENABLED = _env_bool("SUSPICIOUS_MAGIC_SCAN_ENABLED", True)
 SUSPICIOUS_ARCHIVE_SCAN_ENABLED = _env_bool("SUSPICIOUS_ARCHIVE_SCAN_ENABLED", True)
 SCANNER_MAX_DOWNLOAD_BYTES = _env_int("SCANNER_MAX_DOWNLOAD_BYTES", 2_000_000, min_value=0, max_value=20_000_000)
+TRUSTED_FILE_HASH_WHITELIST_ENABLED = _env_bool("TRUSTED_FILE_HASH_WHITELIST_ENABLED", True)
+TRUSTED_HASH_MAX_DOWNLOAD_BYTES = _env_int(
+    "TRUSTED_HASH_MAX_DOWNLOAD_BYTES",
+    max(SCANNER_MAX_DOWNLOAD_BYTES, 20_000_000),
+    min_value=1,
+    max_value=100_000_000,
+)
+MAX_TRUSTED_FILE_HASHES = _env_int("MAX_TRUSTED_FILE_HASHES", 128, min_value=1, max_value=1000)
 MAX_ARCHIVE_MEMBERS_TO_SCAN = _env_int("MAX_ARCHIVE_MEMBERS_TO_SCAN", 500, min_value=1, max_value=5000)
 MAX_CUSTOM_BLOCKED_EXTENSIONS = _env_int("MAX_CUSTOM_BLOCKED_EXTENSIONS", 64, min_value=1, max_value=256)
 SCANNER_DOWNLOAD_CONCURRENCY = _env_int("SCANNER_DOWNLOAD_CONCURRENCY", 4, min_value=1, max_value=32)
@@ -274,6 +282,7 @@ class FileScanResult:
     file_name: str
     mime_type: str
     matched_extension: str = ""
+    file_sha256: str = ""
 
 
 # ─────────────────────────────────────────────────────────────
@@ -365,7 +374,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "Max download scan: <code>{max_bytes}</code> bytes\n"
             "Blocked extensions: <code>{blocked}</code>\n"
             "Dangerous extensions: <code>{dangerous}</code>\n"
-            "Archive extensions: <code>{archives}</code>"
+            "Archive extensions: <code>{archives}</code>\n"
+            "Trusted hash whitelist: <code>{hash_whitelist}</code>"
         ),
         "scanname_usage": "Usage: <code>/scanname invoice.pdf.exe</code>",
         "scanname_blocked": "🚫 <b>Blocked:</b> <code>{file}</code>\n🧪 <b>Reason:</b> {reason}",
@@ -467,7 +477,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "ទំហំ download ស្កេនអតិបរមា: <code>{max_bytes}</code> bytes\n"
             "Extension ដែល block: <code>{blocked}</code>\n"
             "Extension គ្រោះថ្នាក់: <code>{dangerous}</code>\n"
-            "Extension archive: <code>{archives}</code>"
+            "Extension archive: <code>{archives}</code>\n"
+            "Trusted hash whitelist: <code>{hash_whitelist}</code>"
         ),
         "scanname_usage": "ប្រើ: <code>/scanname invoice.pdf.exe</code>",
         "scanname_blocked": "🚫 <b>Blocked:</b> <code>{file}</code>\n🧪 <b>មូលហេតុ:</b> {reason}",
@@ -703,6 +714,21 @@ BUTTON_ONLY_TEXTS: dict[str, dict[str, str]] = {
         "btn_dev_users": "👤 Bot Users",
         "btn_dev_groups": "💬 Bot Groups",
         "btn_dev_memory": "🧠 Memory / Storage",
+        "btn_dev_hash_config": "🔐 Trusted Hash Config",
+        "btn_hash_size": "📦 Max Hash File Size",
+        "btn_hash_limit": "🔢 Max Hashes Per Group",
+        "btn_hash_enable": "🟢 Enable Whitelist",
+        "btn_hash_disable": "🔴 Disable Whitelist",
+        "dev_hash_config_saved": "✅ Trusted hash config updated.",
+        "dev_hash_config_title": (
+            "🔐 <b>Trusted Hash Runtime Config</b>\n\n"
+            "Enabled: <code>{enabled}</code>\n"
+            "Max file hash download: <code>{max_bytes}</code> bytes (<code>{max_mb}</code>)\n"
+            "Max trusted hashes per group: <code>{max_hashes}</code>\n\n"
+            "Env defaults are still used on first boot, but these dashboard values override them and persist in Redis/Supabase."
+        ),
+        "dev_hash_size_title": "📦 <b>Choose max file size for trusted-hash uploads</b>\n\nCurrent: <code>{max_bytes}</code> bytes (<code>{max_mb}</code>)",
+        "dev_hash_limit_title": "🔢 <b>Choose max trusted hashes per group</b>\n\nCurrent: <code>{max_hashes}</code>",
         "btn_next": "Next ➡️",
         "btn_prev": "⬅️ Prev",
         "dev_only": "❌ <b>Developer only.</b> Add your Telegram ID to <code>BOT_OWNER_IDS</code> to open this dashboard.",
@@ -761,6 +787,21 @@ BUTTON_ONLY_TEXTS: dict[str, dict[str, str]] = {
         "btn_dev_users": "👤 អ្នកប្រើ Bot",
         "btn_dev_groups": "💬 ក្រុម Bot",
         "btn_dev_memory": "🧠 Memory / Storage",
+        "btn_dev_hash_config": "🔐 Trusted Hash Config",
+        "btn_hash_size": "📦 ទំហំ File Hash",
+        "btn_hash_limit": "🔢 ចំនួន Hash ក្នុងមួយក្រុម",
+        "btn_hash_enable": "🟢 បើក Whitelist",
+        "btn_hash_disable": "🔴 បិទ Whitelist",
+        "dev_hash_config_saved": "✅ បានកែ Trusted hash config រួចរាល់។",
+        "dev_hash_config_title": (
+            "🔐 <b>Trusted Hash Runtime Config</b>\n\n"
+            "បើក: <code>{enabled}</code>\n"
+            "ទំហំ download អតិបរមា: <code>{max_bytes}</code> bytes (<code>{max_mb}</code>)\n"
+            "Trusted hashes អតិបរមា/ក្រុម: <code>{max_hashes}</code>\n\n"
+            "Env defaults ប្រើពេល boot ដំបូង ប៉ុន្តែតម្លៃក្នុង Dashboard នេះ override ហើយរក្សាទុកក្នុង Redis/Supabase។"
+        ),
+        "dev_hash_size_title": "📦 <b>ជ្រើសទំហំ file អតិបរមា សម្រាប់ trusted-hash upload</b>\n\nបច្ចុប្បន្ន: <code>{max_bytes}</code> bytes (<code>{max_mb}</code>)",
+        "dev_hash_limit_title": "🔢 <b>ជ្រើសចំនួន trusted hashes អតិបរមា ក្នុងមួយក្រុម</b>\n\nបច្ចុប្បន្ន: <code>{max_hashes}</code>",
         "btn_next": "បន្ទាប់ ➡️",
         "btn_prev": "⬅️ ថយក្រោយ",
         "dev_only": "❌ <b>សម្រាប់ Developer ប៉ុណ្ណោះ។</b> សូមបន្ថែម Telegram ID របស់អ្នកក្នុង <code>BOT_OWNER_IDS</code>។",
@@ -809,7 +850,7 @@ for _lang, _items in BUTTON_ONLY_TEXTS.items():
 
 GROUP_ADMIN_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
     "en": {
-        "group_admin_title": "⚙️ <b>Group Admin Panel</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\n🛡 Protection: <code>{protection}</code>\n🔥 Strictness: <code>{strictness}</code>\n🔇 Silent mode: <code>{silent}</code>\n🧩 Blocked formats: <code>{custom_blocked}</code>\n✅ Allowed formats: <code>{allowed}</code>\n⚙️ Auto action: <code>{auto_action}</code>",
+        "group_admin_title": "⚙️ <b>Group Admin Panel</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\n🛡 Protection: <code>{protection}</code>\n🔥 Strictness: <code>{strictness}</code>\n🔇 Silent mode: <code>{silent}</code>\n🧩 Blocked formats: <code>{custom_blocked}</code>\n✅ Allowed formats: <code>{allowed}</code>\n🔐 Trusted hashes: <code>{trusted_hashes}</code>\n⚙️ Auto action: <code>{auto_action}</code>",
         "btn_protection_status": "🛡 Protection Status",
         "btn_scanner_settings": "🧪 Scanner Settings",
         "btn_incident_logs": "🚨 Incident Logs",
@@ -821,6 +862,7 @@ GROUP_ADMIN_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
         "btn_strictness_level": "🔥 Strictness Level",
         "btn_group_health": "🩺 Group Health Check",
         "btn_auto_actions": "🤖 Auto Action Rules",
+        "btn_trusted_hashes": "🔐 Trusted File Hashes",
         "btn_turn_on": "🟢 Turn ON",
         "btn_turn_off": "🔴 Turn OFF",
         "btn_clear_handled": "🧹 Clear Handled Logs",
@@ -849,9 +891,21 @@ GROUP_ADMIN_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
         "btn_auto_smart": "🤖 Smart Warn → Mute → Ban",
         "btn_auto_ban": "🔨 Aggressive Auto Ban",
         "auto_saved": "✅ Auto action rule updated.",
+        "trusted_hash_title": "🔐 <b>Trusted File Hash Whitelist</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\nTrusted hashes: <code>{count}</code>/<code>{limit}</code>\n\n{items}\n\nSend a safe file or paste a SHA256 hash to approve that exact file. If the same file is sent later, the bot will allow it even when the filename ends in <code>.exe</code>.",
+        "trusted_hash_empty": "No trusted hashes yet.",
+        "btn_add_hash": "➕ Add Trusted File/Hash",
+        "btn_remove_hash": "🗑 Remove Trusted Hash",
+        "btn_clear_hashes": "🧹 Clear Trusted Hashes",
+        "trusted_hash_prompt_add": "🔐 <b>Add Trusted File Hash</b>\n\nSend the safe file here in private chat, or paste a SHA256 hash.\n\n⚠️ Only approve files you personally trust. Use Home or Back to cancel.",
+        "trusted_hash_saved": "✅ Trusted hash added.",
+        "trusted_hash_removed": "✅ Trusted hash removed.",
+        "trusted_hash_cleared": "✅ Trusted hash whitelist cleared.",
+        "trusted_hash_invalid": "❌ Send a valid SHA256 hash, or upload a file smaller than the whitelist download limit.",
+        "trusted_hash_limit": "❌ Trusted hash whitelist is full. Remove an old hash first.",
+        "trusted_hash_file_too_large": "❌ File is too large to hash safely. Developer can increase the trusted-hash max file size from the Developer Dashboard.",
     },
     "km": {
-        "group_admin_title": "⚙️ <b>Group Admin Panel</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\n🛡 Protection: <code>{protection}</code>\n🔥 Strictness: <code>{strictness}</code>\n🔇 Silent mode: <code>{silent}</code>\n🧩 Blocked formats: <code>{custom_blocked}</code>\n✅ Allowed formats: <code>{allowed}</code>\n⚙️ Auto action: <code>{auto_action}</code>",
+        "group_admin_title": "⚙️ <b>Group Admin Panel</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\n🛡 Protection: <code>{protection}</code>\n🔥 Strictness: <code>{strictness}</code>\n🔇 Silent mode: <code>{silent}</code>\n🧩 Blocked formats: <code>{custom_blocked}</code>\n✅ Allowed formats: <code>{allowed}</code>\n🔐 Trusted hashes: <code>{trusted_hashes}</code>\n⚙️ Auto action: <code>{auto_action}</code>",
         "btn_protection_status": "🛡 ស្ថានភាពការពារ",
         "btn_scanner_settings": "🧪 កំណត់ Scanner",
         "btn_incident_logs": "🚨 ប្រវត្តិ Incident",
@@ -863,6 +917,7 @@ GROUP_ADMIN_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
         "btn_strictness_level": "🔥 Strictness Level",
         "btn_group_health": "🩺 ពិនិត្យសុខភាពក្រុម",
         "btn_auto_actions": "🤖 Auto Action Rules",
+        "btn_trusted_hashes": "🔐 Trusted File Hashes",
         "btn_turn_on": "🟢 បើក",
         "btn_turn_off": "🔴 បិទ",
         "btn_clear_handled": "🧹 សម្អាត Logs ដែលបានចាត់ការ",
@@ -891,6 +946,18 @@ GROUP_ADMIN_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
         "btn_auto_smart": "🤖 Smart Warn → Mute → Ban",
         "btn_auto_ban": "🔨 Aggressive Auto Ban",
         "auto_saved": "✅ បានកែ auto action rule។",
+        "trusted_hash_title": "🔐 <b>Trusted File Hash Whitelist</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\nTrusted hashes: <code>{count}</code>/<code>{limit}</code>\n\n{items}\n\nផ្ញើ file ដែលមានសុវត្ថិភាពក្នុង private chat ឬ paste SHA256 hash ដើម្បីអនុញ្ញាត file នោះជាក់លាក់។ បើ file ដូចគ្នាត្រូវបានផ្ញើម្ដងទៀត Bot នឹងអនុញ្ញាត ទោះបីជា <code>.exe</code> ក៏ដោយ។",
+        "trusted_hash_empty": "មិនទាន់មាន trusted hash ទេ។",
+        "btn_add_hash": "➕ Add Trusted File/Hash",
+        "btn_remove_hash": "🗑 Remove Trusted Hash",
+        "btn_clear_hashes": "🧹 Clear Trusted Hashes",
+        "trusted_hash_prompt_add": "🔐 <b>Add Trusted File Hash</b>\n\nផ្ញើ safe file នៅទីនេះក្នុង private chat ឬ paste SHA256 hash។\n\n⚠️ អនុញ្ញាតតែ file ដែលអ្នកទុកចិត្តពិតប្រាកដ។ ចុច Home ឬ Back ដើម្បីបោះបង់។",
+        "trusted_hash_saved": "✅ បានបន្ថែម trusted hash។",
+        "trusted_hash_removed": "✅ បានលុប trusted hash។",
+        "trusted_hash_cleared": "✅ បានសម្អាត trusted hash whitelist។",
+        "trusted_hash_invalid": "❌ ផ្ញើ SHA256 hash ត្រឹមត្រូវ ឬ upload file តូចជាង whitelist download limit។",
+        "trusted_hash_limit": "❌ Trusted hash whitelist ពេញហើយ។ សូមលុប hash ចាស់មួយសិន។",
+        "trusted_hash_file_too_large": "❌ File ធំពេក មិនអាច hash ដោយសុវត្ថិភាពបានទេ។ Developer អាចបង្កើន trusted-hash max file size ក្នុង Developer Dashboard។",
     },
 }
 for _lang, _items in GROUP_ADMIN_DASHBOARD_TEXTS.items():
@@ -902,12 +969,114 @@ DEFAULT_GROUP_SETTINGS: dict[str, Any] = {
     "silent_mode": False,
     "allowed_extensions": [],
     "custom_blocked_extensions": [],
+    "trusted_file_hashes": [],
     "auto_action_mode": "off",  # off | warn | smart | ban
     "auto_warn_threshold": 1,
     "auto_mute_threshold": 2,
     "auto_ban_threshold": 3,
     "auto_mute_minutes": 60,
 }
+
+
+# ─────────────────────────────────────────────────────────────
+# DEVELOPER RUNTIME CONFIG
+# Env vars are still the boot defaults, but the Developer Dashboard can override
+# these values at runtime. Overrides are stored in bot_data["settings"] and are
+# persisted by the existing Redis/Supabase memory flow.
+# ─────────────────────────────────────────────────────────────
+
+RUNTIME_CONFIG_KEY = "runtime_config"
+TRUSTED_HASH_SIZE_OPTIONS = (2_000_000, 5_000_000, 10_000_000, 20_000_000, 50_000_000, 100_000_000)
+TRUSTED_HASH_LIMIT_OPTIONS = (32, 64, 128, 256, 512, 1000)
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().casefold()
+        if lowered in {"1", "true", "yes", "y", "on", "enabled"}:
+            return True
+        if lowered in {"0", "false", "no", "n", "off", "disabled"}:
+            return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return bool(default)
+
+
+def _coerce_int_range(value: Any, default: int, *, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return max(min_value, min(max_value, parsed))
+
+
+def _runtime_config_bucket(bot_data: dict[str, Any], *, create: bool = False) -> dict[str, Any]:
+    settings = bot_data.get("settings")
+    if not isinstance(settings, dict):
+        if not create:
+            return {}
+        settings = {}
+        bot_data["settings"] = settings
+    bucket = settings.get(RUNTIME_CONFIG_KEY)
+    if not isinstance(bucket, dict):
+        if not create:
+            return {}
+        bucket = {}
+        settings[RUNTIME_CONFIG_KEY] = bucket
+    return bucket
+
+
+def ensure_runtime_config(bot_data: dict[str, Any]) -> dict[str, Any]:
+    bucket = _runtime_config_bucket(bot_data, create=True)
+    bucket["trusted_file_hash_whitelist_enabled"] = _coerce_bool(
+        bucket.get("trusted_file_hash_whitelist_enabled"),
+        TRUSTED_FILE_HASH_WHITELIST_ENABLED,
+    )
+    bucket["trusted_hash_max_download_bytes"] = _coerce_int_range(
+        bucket.get("trusted_hash_max_download_bytes"),
+        TRUSTED_HASH_MAX_DOWNLOAD_BYTES,
+        min_value=1,
+        max_value=100_000_000,
+    )
+    bucket["max_trusted_file_hashes"] = _coerce_int_range(
+        bucket.get("max_trusted_file_hashes"),
+        MAX_TRUSTED_FILE_HASHES,
+        min_value=1,
+        max_value=1000,
+    )
+    return bucket
+
+
+def trusted_hash_whitelist_enabled(bot_data: dict[str, Any]) -> bool:
+    bucket = _runtime_config_bucket(bot_data)
+    return _coerce_bool(bucket.get("trusted_file_hash_whitelist_enabled"), TRUSTED_FILE_HASH_WHITELIST_ENABLED)
+
+
+def trusted_hash_max_download_bytes(bot_data: dict[str, Any]) -> int:
+    bucket = _runtime_config_bucket(bot_data)
+    return _coerce_int_range(
+        bucket.get("trusted_hash_max_download_bytes"),
+        TRUSTED_HASH_MAX_DOWNLOAD_BYTES,
+        min_value=1,
+        max_value=100_000_000,
+    )
+
+
+def max_trusted_file_hashes(bot_data: dict[str, Any]) -> int:
+    bucket = _runtime_config_bucket(bot_data)
+    return _coerce_int_range(
+        bucket.get("max_trusted_file_hashes"),
+        MAX_TRUSTED_FILE_HASHES,
+        min_value=1,
+        max_value=1000,
+    )
+
+
+def format_bytes_mb(value: int) -> str:
+    mb = int(value) / 1_000_000
+    return f"{mb:.0f} MB" if mb.is_integer() else f"{mb:.1f} MB"
 
 # ─────────────────────────────────────────────────────────────
 # REDIS MEMORY / PERSISTENCE HELPERS
@@ -920,6 +1089,7 @@ PERSISTED_BOT_DATA_KEYS = (
     "incidents",
     "warning_counts",
     "settings",
+    "whitelisted_hashes",
     # Persist lightweight caches so private dashboards can render without live API calls after restart.
     "chat_meta_cache",
     "admin_ids_cache",
@@ -1838,8 +2008,28 @@ def scan_file_bytes(file_name: str, mime_type: str, data: bytes) -> FileScanResu
     return None
 
 
-async def scan_document(context: ContextTypes.DEFAULT_TYPE, document: Any) -> FileScanResult:
-    """Suspicious file scanner that avoids large downloads and never raises."""
+async def _download_document_bytes_for_scanner(context: ContextTypes.DEFAULT_TYPE, document: Any, *, file_name: str, file_size: int) -> bytes | None:
+    for attempt in (1, 2):
+        try:
+            async with SCAN_DOWNLOAD_SEMAPHORE:
+                tg_file = await context.bot.get_file(document.file_id)
+                return bytes(await tg_file.download_as_bytearray())
+        except RetryAfter as exc:
+            if attempt == 1 and await _sleep_for_retry_after(exc, operation="scanner_download"):
+                continue
+            logger.exception("Scanner download hit RetryAfter file_name=%r size=%s", file_name, file_size, exc_info=True)
+            return None
+        except (TimedOut, BadRequest, Forbidden, TelegramError):
+            logger.exception("Could not download file for scanner file_name=%r size=%s", file_name, file_size, exc_info=True)
+            return None
+        except Exception:
+            logger.exception("Unexpected scanner download failure file_name=%r size=%s", file_name, file_size, exc_info=True)
+            return None
+    return None
+
+
+async def scan_document(context: ContextTypes.DEFAULT_TYPE, document: Any, *, chat_id: int | None = None) -> FileScanResult:
+    """Suspicious file scanner that supports group trusted SHA256 whitelist."""
     file_name = normalize_filename(getattr(document, "file_name", None))
     mime_type = (getattr(document, "mime_type", "") or "").casefold().strip()
 
@@ -1849,44 +2039,64 @@ async def scan_document(context: ContextTypes.DEFAULT_TYPE, document: Any) -> Fi
         logger.exception("Filename scanner crashed file_name=%r", file_name, exc_info=True)
         return FileScanResult(False, "scanner_error", "scanner skipped after filename parser error", (), file_name, mime_type)
 
-    if result.blocked:
-        return result
-
-    if not (SUSPICIOUS_SCANNER_ENABLED and SUSPICIOUS_MAGIC_SCAN_ENABLED and SCANNER_MAX_DOWNLOAD_BYTES > 0):
-        return result
-
     file_size = int(getattr(document, "file_size", 0) or 0)
-    if file_size <= 0 or file_size > SCANNER_MAX_DOWNLOAD_BYTES:
+    can_download_for_hash = bool(
+        trusted_hash_whitelist_enabled(context.bot_data)
+        and chat_id is not None
+        and file_size > 0
+        and file_size <= trusted_hash_max_download_bytes(context.bot_data)
+    )
+    can_download_for_magic = bool(
+        SUSPICIOUS_SCANNER_ENABLED
+        and SUSPICIOUS_MAGIC_SCAN_ENABLED
+        and SCANNER_MAX_DOWNLOAD_BYTES > 0
+        and file_size > 0
+        and file_size <= SCANNER_MAX_DOWNLOAD_BYTES
+    )
+
+    if result.blocked and not can_download_for_hash:
+        return result
+    if not (can_download_for_hash or can_download_for_magic):
         return result
 
-    data: bytes | None = None
-    for attempt in (1, 2):
-        try:
-            async with SCAN_DOWNLOAD_SEMAPHORE:
-                tg_file = await context.bot.get_file(document.file_id)
-                data = bytes(await tg_file.download_as_bytearray())
-            break
-        except RetryAfter as exc:
-            if attempt == 1 and await _sleep_for_retry_after(exc, operation="scanner_download"):
-                continue
-            logger.exception("Scanner download hit RetryAfter file_name=%r size=%s", file_name, file_size, exc_info=True)
-            return result
-        except (TimedOut, BadRequest, Forbidden, TelegramError):
-            logger.exception("Could not download file for scanner file_name=%r size=%s", file_name, file_size, exc_info=True)
-            return result
-        except Exception:
-            logger.exception("Unexpected scanner download failure file_name=%r size=%s", file_name, file_size, exc_info=True)
-            return result
+    data = await _download_document_bytes_for_scanner(context, document, file_name=file_name, file_size=file_size)
     if data is None:
         return result
 
-    try:
-        magic_result = scan_file_bytes(result.file_name, result.mime_type, data)
-        return magic_result or result
-    except Exception:
-        logger.exception("Byte scanner crashed file_name=%r", file_name, exc_info=True)
+    file_sha256 = calculate_file_hash(data)
+    result = replace(result, file_sha256=file_sha256, details=tuple([*result.details, f"sha256:{file_sha256}"]))
+
+    if chat_id is not None:
+        try:
+            async with BOT_DATA_LOCK:
+                if is_trusted_file_hash(context.bot_data, chat_id, file_sha256):
+                    return FileScanResult(
+                        False,
+                        "trusted_hash_whitelist",
+                        "allowed by trusted SHA256 file hash whitelist",
+                        (f"sha256:{file_sha256}",),
+                        result.file_name,
+                        result.mime_type,
+                        result.matched_extension,
+                        file_sha256,
+                    )
+        except Exception:
+            logger.exception("Trusted hash whitelist check failed chat_id=%s file_name=%r", chat_id, file_name, exc_info=True)
+
+    if result.blocked and not can_download_for_magic:
         return result
 
+    if can_download_for_magic:
+        try:
+            magic_result = scan_file_bytes(result.file_name, result.mime_type, data)
+            if magic_result is not None:
+                return replace(magic_result, file_sha256=file_sha256, details=tuple([*magic_result.details, f"sha256:{file_sha256}"]))
+            return result
+        except Exception:
+            logger.exception("Byte scanner crashed file_name=%r", file_name, exc_info=True)
+            return result
+
+    return result
 
 def now_utc_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -2561,6 +2771,108 @@ def format_extension_list(values: Iterable[Any]) -> str:
     return ", ".join(items) if items else "none"
 
 
+VALID_SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+
+
+def normalize_sha256_hash(value: Any) -> str:
+    cleaned = str(value or "").strip().casefold()
+    cleaned = cleaned.removeprefix("sha256:").strip()
+    return cleaned if VALID_SHA256_RE.fullmatch(cleaned) else ""
+
+
+def _dedupe_valid_hashes(values: Iterable[Any], *, limit: int | None = None) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        digest = normalize_sha256_hash(raw)
+        if digest and digest not in seen:
+            cleaned.append(digest)
+            seen.add(digest)
+        if limit is not None and len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def calculate_file_hash(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def short_hash(value: str, *, length: int = 12) -> str:
+    digest = normalize_sha256_hash(value)
+    return digest[:length] if digest else ""
+
+
+def format_hash_list(values: Iterable[Any], *, limit: int = 8) -> str:
+    hashes = _dedupe_valid_hashes(values)
+    if not hashes:
+        return "none"
+    shown = [f"<code>{h(item[:12])}…</code>" for item in hashes[:limit]]
+    if len(hashes) > limit:
+        shown.append(f"+{len(hashes) - limit} more")
+    return "\n".join(shown)
+
+
+def is_trusted_file_hash(bot_data: dict[str, Any], chat_id: int, file_sha256: str) -> bool:
+    digest = normalize_sha256_hash(file_sha256)
+    if not digest:
+        return False
+    settings = get_group_settings(bot_data, chat_id)
+    return digest in set(settings.get("trusted_file_hashes", []))
+
+
+def add_trusted_file_hash(bot_data: dict[str, Any], chat_id: int, file_sha256: str, *, added_by: int | None = None, file_name: str = "") -> bool:
+    digest = normalize_sha256_hash(file_sha256)
+    if not digest:
+        return False
+    settings = get_group_settings(bot_data, chat_id)
+    current = _dedupe_valid_hashes(settings.get("trusted_file_hashes", []), limit=max_trusted_file_hashes(bot_data))
+    if digest not in current:
+        if len(current) >= max_trusted_file_hashes(bot_data):
+            return False
+        current.append(digest)
+    settings["trusted_file_hashes"] = current
+    bucket = bot_data.setdefault("whitelisted_hashes", {})
+    if not isinstance(bucket, dict):
+        bucket = {}
+        bot_data["whitelisted_hashes"] = bucket
+    group_bucket = bucket.setdefault(str(int(chat_id)), {})
+    if isinstance(group_bucket, dict):
+        group_bucket[digest] = {
+            "sha256": digest,
+            "file_name": str(file_name or ""),
+            "added_by": int(added_by or 0),
+            "added_at_ms": now_ms(),
+        }
+    return True
+
+
+def remove_trusted_file_hash(bot_data: dict[str, Any], chat_id: int, file_hash_or_prefix: str) -> bool:
+    key = str(file_hash_or_prefix or "").strip().casefold()
+    if not key:
+        return False
+    settings = get_group_settings(bot_data, chat_id)
+    current = _dedupe_valid_hashes(settings.get("trusted_file_hashes", []), limit=max_trusted_file_hashes(bot_data))
+    removed = [item for item in current if item == key or item.startswith(key)]
+    if not removed:
+        return False
+    settings["trusted_file_hashes"] = [item for item in current if item not in removed]
+    bucket = bot_data.get("whitelisted_hashes")
+    if isinstance(bucket, dict):
+        group_bucket = bucket.get(str(int(chat_id)))
+        if isinstance(group_bucket, dict):
+            for digest in removed:
+                group_bucket.pop(digest, None)
+    return True
+
+
+def clear_trusted_file_hashes(bot_data: dict[str, Any], chat_id: int) -> None:
+    settings = get_group_settings(bot_data, chat_id)
+    settings["trusted_file_hashes"] = []
+    bucket = bot_data.get("whitelisted_hashes")
+    if isinstance(bucket, dict):
+        bucket.pop(str(int(chat_id)), None)
+
+
 def get_group_settings(bot_data: dict[str, Any], chat_id: int) -> dict[str, Any]:
     state = get_group_state(bot_data, chat_id)
     settings = state.setdefault("settings", {})
@@ -2588,6 +2900,9 @@ def get_group_settings(bot_data: dict[str, Any], chat_id: int) -> dict[str, Any]
         if not isinstance(settings.get(list_key), list):
             settings[list_key] = []
         settings[list_key] = _dedupe_valid_extensions(settings.get(list_key, []), limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
+    if not isinstance(settings.get("trusted_file_hashes"), list):
+        settings["trusted_file_hashes"] = []
+    settings["trusted_file_hashes"] = _dedupe_valid_hashes(settings.get("trusted_file_hashes", []), limit=max_trusted_file_hashes(bot_data))
     settings["protection_enabled"] = bool(settings.get("protection_enabled", True))
     settings["silent_mode"] = bool(settings.get("silent_mode", False))
     return settings
@@ -2914,6 +3229,7 @@ def group_settings_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_blocked_formats"), callback_data=f"gfmt:{chat_id}:menu"), InlineKeyboardButton(tr(bot_data, user_id, "btn_allowed_formats"), callback_data=f"gallow:{chat_id}:menu")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_silent_mode"), callback_data=f"gset:{chat_id}:silent"), InlineKeyboardButton(tr(bot_data, user_id, "btn_strictness_level"), callback_data=f"gset:{chat_id}:strictness")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_auto_actions"), callback_data=f"gap:{chat_id}:auto")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_trusted_hashes"), callback_data=f"ghash:{chat_id}:menu")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_refresh"), callback_data=f"gap:{chat_id}:refresh")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data="nav:groups")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
@@ -2971,6 +3287,7 @@ async def render_group_settings_panel(
             silent=_on_off(context.bot_data, user_id, bool(settings.get("silent_mode")), key_on="silent_on", key_off="silent_off"),
             allowed=h(allowed),
             custom_blocked=h(custom_blocked),
+            trusted_hashes=len(settings.get("trusted_file_hashes", [])) if isinstance(settings.get("trusted_file_hashes"), list) else 0,
             auto_action=h(_auto_action_label(settings.get("auto_action_mode"))),
         )
         keyboard = group_settings_keyboard(context.bot_data, user_id, chat_id)
@@ -3034,6 +3351,53 @@ async def render_allowed_manager_panel(update: Update, context: ContextTypes.DEF
         allowed = format_extension_list(settings.get("allowed_extensions", []))
         text = tr(context.bot_data, user_id, "allowed_title", group=h(title), chat_id=chat_id, allowed=h(allowed))
         keyboard = remove_allowed_keyboard(context.bot_data, user_id, chat_id) if remove_mode else allowed_manager_keyboard(context.bot_data, user_id, chat_id)
+    if notice:
+        text = f"{notice}\n\n{text}"
+    await send_or_edit_panel(update, text, keyboard)
+
+
+def trusted_hash_manager_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
+    settings = get_group_settings(bot_data, chat_id)
+    rows: list[list[InlineKeyboardButton]] = [[InlineKeyboardButton(tr(bot_data, user_id, "btn_add_hash"), callback_data=f"ghash:{chat_id}:add")]]
+    if settings.get("trusted_file_hashes"):
+        rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_remove_hash"), callback_data=f"ghash:{chat_id}:remove")])
+        rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_clear_hashes"), callback_data=f"ghash:{chat_id}:clear")])
+    rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data=f"grp:{chat_id}")])
+    rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")])
+    return InlineKeyboardMarkup(rows)
+
+
+def remove_trusted_hash_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
+    settings = get_group_settings(bot_data, chat_id)
+    rows: list[list[InlineKeyboardButton]] = []
+    for digest in settings.get("trusted_file_hashes", []):
+        short = short_hash(digest)
+        if short:
+            rows.append([InlineKeyboardButton(f"🗑 {short}…", callback_data=f"ghashdel:{chat_id}:{short}")])
+    rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data=f"ghash:{chat_id}:menu")])
+    rows.append([InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def render_trusted_hash_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int, *, notice: str = "", remove_mode: bool = False) -> None:
+    async with BOT_DATA_LOCK:
+        title = get_chat_title_from_state(context.bot_data, chat_id)
+        settings = dict(get_group_settings(context.bot_data, chat_id))
+        hashes = settings.get("trusted_file_hashes", []) if isinstance(settings.get("trusted_file_hashes"), list) else []
+        items = format_hash_list(hashes)
+        if items == "none":
+            items = tr(context.bot_data, user_id, "trusted_hash_empty")
+        text = tr(
+            context.bot_data,
+            user_id,
+            "trusted_hash_title",
+            group=h(title),
+            chat_id=chat_id,
+            count=len(hashes),
+            limit=max_trusted_file_hashes(context.bot_data),
+            items=items,
+        )
+        keyboard = remove_trusted_hash_keyboard(context.bot_data, user_id, chat_id) if remove_mode else trusted_hash_manager_keyboard(context.bot_data, user_id, chat_id)
     if notice:
         text = f"{notice}\n\n{text}"
     await send_or_edit_panel(update, text, keyboard)
@@ -3196,6 +3560,7 @@ def _developer_keyboard(bot_data: dict[str, Any], user_id: int) -> InlineKeyboar
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_users"), callback_data="dev:users:0")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_groups"), callback_data="dev:groups:0")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_memory"), callback_data="dev:memory")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_hash_config"), callback_data="dev:hash")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_refresh"), callback_data="dev:refresh")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
         ]
@@ -3439,6 +3804,86 @@ async def render_developer_memory_panel(update: Update, context: ContextTypes.DE
     await send_or_edit_panel(update, text, keyboard)
 
 
+
+
+def _developer_hash_config_keyboard(bot_data: dict[str, Any], user_id: int) -> InlineKeyboardMarkup:
+    enabled = trusted_hash_whitelist_enabled(bot_data)
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_hash_disable" if enabled else "btn_hash_enable"), callback_data="dev:hash:toggle")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_hash_size"), callback_data="dev:hash:size")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_hash_limit"), callback_data="dev:hash:limit")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data="dev:home")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
+        ]
+    )
+
+
+async def render_developer_hash_config_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, *, notice: str = "") -> None:
+    async with BOT_DATA_LOCK:
+        ensure_runtime_config(context.bot_data)
+        enabled = trusted_hash_whitelist_enabled(context.bot_data)
+        max_bytes = trusted_hash_max_download_bytes(context.bot_data)
+        max_hashes = max_trusted_file_hashes(context.bot_data)
+        text = tr(
+            context.bot_data,
+            user_id,
+            "dev_hash_config_title",
+            enabled=str(enabled).lower(),
+            max_bytes=max_bytes,
+            max_mb=h(format_bytes_mb(max_bytes)),
+            max_hashes=max_hashes,
+        )
+        if notice:
+            text = f"{notice}\n\n{text}"
+        keyboard = _developer_hash_config_keyboard(context.bot_data, user_id)
+    await send_or_edit_panel(update, text, keyboard)
+
+
+async def render_developer_hash_size_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    async with BOT_DATA_LOCK:
+        max_bytes = trusted_hash_max_download_bytes(context.bot_data)
+        rows = [[InlineKeyboardButton(f"📦 {format_bytes_mb(value)}", callback_data=f"dev:hash:size:{value}")] for value in TRUSTED_HASH_SIZE_OPTIONS]
+        rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_back"), callback_data="dev:hash")])
+        rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")])
+        text = tr(context.bot_data, user_id, "dev_hash_size_title", max_bytes=max_bytes, max_mb=h(format_bytes_mb(max_bytes)))
+        keyboard = InlineKeyboardMarkup(rows)
+    await send_or_edit_panel(update, text, keyboard)
+
+
+async def render_developer_hash_limit_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    async with BOT_DATA_LOCK:
+        max_hashes = max_trusted_file_hashes(context.bot_data)
+        rows = [[InlineKeyboardButton(f"🔢 {value}", callback_data=f"dev:hash:limit:{value}")] for value in TRUSTED_HASH_LIMIT_OPTIONS]
+        rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_back"), callback_data="dev:hash")])
+        rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")])
+        text = tr(context.bot_data, user_id, "dev_hash_limit_title", max_hashes=max_hashes)
+        keyboard = InlineKeyboardMarkup(rows)
+    await send_or_edit_panel(update, text, keyboard)
+
+
+async def update_developer_hash_config(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    *,
+    toggle_enabled: bool = False,
+    max_bytes: int | None = None,
+    max_hashes: int | None = None,
+) -> None:
+    async with BOT_DATA_LOCK:
+        config = ensure_runtime_config(context.bot_data)
+        if toggle_enabled:
+            config["trusted_file_hash_whitelist_enabled"] = not trusted_hash_whitelist_enabled(context.bot_data)
+        if max_bytes is not None:
+            config["trusted_hash_max_download_bytes"] = _coerce_int_range(max_bytes, TRUSTED_HASH_MAX_DOWNLOAD_BYTES, min_value=1, max_value=100_000_000)
+        if max_hashes is not None:
+            config["max_trusted_file_hashes"] = _coerce_int_range(max_hashes, MAX_TRUSTED_FILE_HASHES, min_value=1, max_value=1000)
+        ensure_runtime_config(context.bot_data)
+        await persist_context_memory(context, reason="developer_hash_runtime_config", force=True, caller_holds_lock=True)
+    await render_developer_hash_config_panel(update, context, user_id, notice=tr(context.bot_data, user_id, "dev_hash_config_saved"))
+
+
 async def set_pending_format_edit(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int, mode: str) -> None:
     async with BOT_DATA_LOCK:
         state = get_user_state(context.bot_data, int(user_id))
@@ -3502,6 +3947,31 @@ async def developer_dashboard_callback(update: Update, context: ContextTypes.DEF
         return
     if action == "memory":
         await render_developer_memory_panel(update, context, user_id)
+        return
+    if action == "hash":
+        sub = parts[2] if len(parts) > 2 else "menu"
+        if sub == "toggle":
+            await update_developer_hash_config(update, context, user_id, toggle_enabled=True)
+            return
+        if sub == "size":
+            if len(parts) > 3:
+                try:
+                    await update_developer_hash_config(update, context, user_id, max_bytes=int(parts[3]))
+                except ValueError:
+                    await render_developer_hash_size_panel(update, context, user_id)
+                return
+            await render_developer_hash_size_panel(update, context, user_id)
+            return
+        if sub == "limit":
+            if len(parts) > 3:
+                try:
+                    await update_developer_hash_config(update, context, user_id, max_hashes=int(parts[3]))
+                except ValueError:
+                    await render_developer_hash_limit_panel(update, context, user_id)
+                return
+            await render_developer_hash_limit_panel(update, context, user_id)
+            return
+        await render_developer_hash_config_panel(update, context, user_id)
         return
     if action == "users":
         page = _safe_page(parts[2] if len(parts) > 2 else "0")
@@ -3778,6 +4248,75 @@ async def group_admin_panel_callback(update: Update, context: ContextTypes.DEFAU
     else: await render_group_settings_panel(update, context, user_id, chat_id)
 
 
+async def trusted_hash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    user_id = query.from_user.id
+    if not callback_is_private(query):
+        await reject_group_config_callback(query, context.bot_data, user_id)
+        return
+    await query.answer()
+    parts = (query.data or "").split(":", 2)
+    if len(parts) != 3:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    _, chat_id_raw, action = parts
+    try:
+        chat_id = int(chat_id_raw)
+    except ValueError:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
+        await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
+    if action == "menu":
+        await render_trusted_hash_panel(update, context, user_id, chat_id)
+    elif action == "add":
+        async with BOT_DATA_LOCK:
+            state = get_user_state(context.bot_data, user_id)
+            state["pending_format_edit"] = {"chat_id": int(chat_id), "mode": "hash_add"}
+            await persist_context_memory(context, reason="trusted_hash_prompt", force=False, caller_holds_lock=True)
+        await safe_edit_query(query, tr(context.bot_data, user_id, "trusted_hash_prompt_add"), reply_markup=_group_back_keyboard(context.bot_data, user_id, chat_id))
+    elif action == "remove":
+        await render_trusted_hash_panel(update, context, user_id, chat_id, remove_mode=True)
+    elif action == "clear":
+        async with BOT_DATA_LOCK:
+            clear_trusted_file_hashes(context.bot_data, chat_id)
+            await persist_context_memory(context, reason="trusted_hash_clear", force=True, caller_holds_lock=True)
+        await render_trusted_hash_panel(update, context, user_id, chat_id, notice=tr(context.bot_data, user_id, "trusted_hash_cleared"))
+    else:
+        await render_trusted_hash_panel(update, context, user_id, chat_id)
+
+
+async def delete_trusted_hash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.from_user:
+        return
+    user_id = query.from_user.id
+    if not callback_is_private(query):
+        await reject_group_config_callback(query, context.bot_data, user_id)
+        return
+    await query.answer()
+    parts = (query.data or "").split(":", 2)
+    if len(parts) != 3:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    _, chat_id_raw, digest_prefix = parts
+    try:
+        chat_id = int(chat_id_raw)
+    except ValueError:
+        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        return
+    if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
+        await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
+    async with BOT_DATA_LOCK:
+        remove_trusted_file_hash(context.bot_data, chat_id, digest_prefix)
+        await persist_context_memory(context, reason="trusted_hash_remove", force=True, caller_holds_lock=True)
+    await render_trusted_hash_panel(update, context, user_id, chat_id, notice=tr(context.bot_data, user_id, "trusted_hash_removed"))
+
+
 async def auto_actions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if not query or not query.from_user: return
@@ -3829,6 +4368,23 @@ async def private_text_flow_handler(update: Update, context: ContextTypes.DEFAUL
     if not await is_user_admin_in_group(context, chat_id, user.id, allow_api=True):
         await clear_pending_format_edit(context, user.id)
         await safe_reply(update, tr(context.bot_data, user.id, "group_admin_only"), reply_markup=await dashboard_home_keyboard(context, user.id))
+        return
+
+    if mode == "hash_add":
+        digest = normalize_sha256_hash(text)
+        if not digest:
+            await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_invalid"))
+            return
+        async with BOT_DATA_LOCK:
+            settings = get_group_settings(context.bot_data, chat_id)
+            if digest not in settings.get("trusted_file_hashes", []) and len(settings.get("trusted_file_hashes", [])) >= max_trusted_file_hashes(context.bot_data):
+                await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_limit"))
+                return
+            add_trusted_file_hash(context.bot_data, chat_id, digest, added_by=user.id, file_name="manual hash")
+            state = get_user_state(context.bot_data, user.id)
+            state.pop("pending_format_edit", None)
+            await persist_context_memory(context, reason="trusted_hash_add_manual", force=True, caller_holds_lock=True)
+        await render_trusted_hash_panel(update, context, user.id, chat_id, notice=tr(context.bot_data, user.id, "trusted_hash_saved"))
         return
 
     parsed = parse_extensions_from_text(text)
@@ -3893,6 +4449,9 @@ def apply_group_scan_policy(bot_data: dict[str, Any], chat_id: int, scan: FileSc
     settings = get_group_settings(bot_data, chat_id)
     if not settings.get("protection_enabled", True):
         return replace(scan, blocked=False, reason_code="protection_disabled", reason_display="group protection is disabled")
+
+    if trusted_hash_whitelist_enabled(bot_data) and scan.file_sha256 and is_trusted_file_hash(bot_data, chat_id, scan.file_sha256):
+        return replace(scan, blocked=False, reason_code="trusted_hash_whitelist", reason_display="allowed by trusted SHA256 file hash whitelist")
 
     matched_ext = _normalize_extension(scan.matched_extension) if scan.matched_extension else ""
     suffixes = filename_suffixes(scan.file_name)
@@ -4562,6 +5121,59 @@ async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TY
     logger.info("my_chat_member: chat_id=%s old=%s new=%s can_delete=%s", chat.id, getattr(old_member, "status", None), new_status, can_delete)
 
 
+async def private_document_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    message = update.effective_message
+    chat = update.effective_chat
+    if not user or not message or not message.document or not chat or chat.type != ChatType.PRIVATE:
+        return
+
+    async with BOT_DATA_LOCK:
+        user_state = context.bot_data.get("user_state", {})
+        state = (user_state.get(user.id) or user_state.get(str(user.id)) or {}) if isinstance(user_state, dict) else {}
+        pending = dict(state.get("pending_format_edit")) if isinstance(state, dict) and isinstance(state.get("pending_format_edit"), dict) else None
+
+    if not isinstance(pending, dict) or str(pending.get("mode") or "") != "hash_add":
+        return
+
+    try:
+        chat_id = int(pending.get("chat_id"))
+    except (TypeError, ValueError):
+        await clear_pending_format_edit(context, user.id)
+        await safe_reply(update, tr(context.bot_data, user.id, "unknown_error"), reply_markup=await dashboard_home_keyboard(context, user.id))
+        return
+
+    if not await is_user_admin_in_group(context, chat_id, user.id, allow_api=True):
+        await clear_pending_format_edit(context, user.id)
+        await safe_reply(update, tr(context.bot_data, user.id, "group_admin_only"), reply_markup=await dashboard_home_keyboard(context, user.id))
+        return
+
+    document = message.document
+    file_name = normalize_filename(getattr(document, "file_name", None))
+    file_size = int(getattr(document, "file_size", 0) or 0)
+    if file_size <= 0 or file_size > trusted_hash_max_download_bytes(context.bot_data):
+        await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_file_too_large"))
+        return
+
+    data = await _download_document_bytes_for_scanner(context, document, file_name=file_name, file_size=file_size)
+    if data is None:
+        await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_invalid"))
+        return
+    digest = calculate_file_hash(data)
+
+    async with BOT_DATA_LOCK:
+        settings = get_group_settings(context.bot_data, chat_id)
+        if digest not in settings.get("trusted_file_hashes", []) and len(settings.get("trusted_file_hashes", [])) >= max_trusted_file_hashes(context.bot_data):
+            await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_limit"))
+            return
+        add_trusted_file_hash(context.bot_data, chat_id, digest, added_by=user.id, file_name=file_name)
+        state = get_user_state(context.bot_data, user.id)
+        state.pop("pending_format_edit", None)
+        await persist_context_memory(context, reason="trusted_hash_add_file", force=True, caller_holds_lock=True)
+
+    await render_trusted_hash_panel(update, context, user.id, chat_id, notice=tr(context.bot_data, user.id, "trusted_hash_saved"))
+
+
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     chat = update.effective_chat
@@ -4570,7 +5182,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     try:
-        scan = await scan_document(context, message.document)
+        scan = await scan_document(context, message.document, chat_id=chat.id)
         async with BOT_DATA_LOCK:
             scan = apply_group_scan_policy(context.bot_data, chat.id, scan)
     except Exception:
@@ -4634,6 +5246,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "scan_details": list(scan.details),
                 "mime_type": scan.mime_type,
                 "matched_extension": scan.matched_extension,
+                "file_sha256": scan.file_sha256,
                 "message_id": message.message_id,
                 "alert_messages": {},
             }
@@ -4657,6 +5270,7 @@ def scanner_config_text(bot_data: dict[str, Any], user_id: int | None) -> str:
         blocked=h(", ".join(BLOCKED_EXTENSIONS)),
         dangerous=h(", ".join(DANGEROUS_EXTENSIONS)),
         archives=h(", ".join(ARCHIVE_EXTENSIONS)),
+        hash_whitelist=str(trusted_hash_whitelist_enabled(bot_data)).lower(),
     )
 
 
@@ -4897,7 +5511,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CallbackQueryHandler(lang_callback, pattern=r"^lang_(en|km)$"))
     app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups|help)$"))
-    app.add_handler(CallbackQueryHandler(developer_dashboard_callback, pattern=r"^dev:(home|refresh|memory|users(?::\d+)?|user:-?\d+|groups(?::\d+)?)$"))
+    app.add_handler(CallbackQueryHandler(developer_dashboard_callback, pattern=r"^dev:(home|refresh|memory|hash(?::(?:toggle|size(?::\d+)?|limit(?::\d+)?))?|users(?::\d+)?|user:-?\d+|groups(?::\d+)?)$"))
     app.add_handler(CallbackQueryHandler(group_dashboard_callback, pattern=r"^grp:-?\d+$"))
     app.add_handler(CallbackQueryHandler(group_admin_panel_callback, pattern=r"^gap:-?\d+:(protection|scanner|incidents|risk|admins|allowed|health|auto|clear_incidents|refresh)$"))
     app.add_handler(CallbackQueryHandler(group_settings_callback, pattern=r"^gset:-?\d+:(protection|strictness|silent)$"))
@@ -4905,10 +5519,13 @@ def build_application() -> Application:
     app.add_handler(CallbackQueryHandler(delete_format_callback, pattern=r"^gfmtdel:-?\d+:[A-Za-z0-9_.+-]{1,16}$"))
     app.add_handler(CallbackQueryHandler(allowed_formats_callback, pattern=r"^gallow:-?\d+:(menu|add|edit|remove|clear)$"))
     app.add_handler(CallbackQueryHandler(delete_allowed_format_callback, pattern=r"^gallowdel:-?\d+:[A-Za-z0-9_.+-]{1,16}$"))
+    app.add_handler(CallbackQueryHandler(trusted_hash_callback, pattern=r"^ghash:-?\d+:(menu|add|remove|clear)$"))
+    app.add_handler(CallbackQueryHandler(delete_trusted_hash_callback, pattern=r"^ghashdel:-?\d+:[a-fA-F0-9]{12}$"))
     app.add_handler(CallbackQueryHandler(auto_actions_callback, pattern=r"^gauto:-?\d+:(off|warn|smart|ban)$"))
     app.add_handler(CallbackQueryHandler(check_perm_callback, pattern=r"^check_perm$"))
     app.add_handler(CallbackQueryHandler(action_callback, pattern=r"^act:(ban|warn|ignore):.+$"))
     app.add_handler(ChatMemberHandler(my_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER))
+    app.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, private_document_flow_handler))
     app.add_handler(MessageHandler(filters.Document.ALL & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP), handle_document))
     app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, private_text_flow_handler))
     app.add_error_handler(error_handler)
