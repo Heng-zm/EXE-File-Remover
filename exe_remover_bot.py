@@ -1245,6 +1245,82 @@ INTERFACE_BUTTON_TEXTS: dict[str, dict[str, str]] = {
 for _lang, _items in INTERFACE_BUTTON_TEXTS.items():
     TEXTS.setdefault(_lang, {}).update(_items)
 
+
+# ─────────────────────────────────────────────────────────────
+# ADMIN PANEL V4 UPGRADE
+# Cleaner group control center, admin action logs, health summary and safer UX.
+# ─────────────────────────────────────────────────────────────
+ADMIN_PANEL_V4_TEXTS: dict[str, dict[str, str]] = {
+    "en": {
+        "group_admin_title": (
+            "🛡️ <b>Admin Control Center v4</b>\n"
+            "💬 <b>{group}</b>\n"
+            "<code>{chat_id}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "{health_status}\n"
+            "🛡 Protection: <b>{protection}</b>\n"
+            "🔥 Strictness: <code>{strictness}</code>\n"
+            "🔇 Silent mode: <code>{silent}</code>\n"
+            "🤖 Auto action: <code>{auto_action}</code>\n"
+            "👮 Admin alerts: <code>{admin_ready}</code>/<code>{admin_total}</code> ready\n"
+            "🚨 Open incidents: <code>{open_incidents}</code>\n"
+            "📝 Admin logs: <code>{admin_logs}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🧪 Security: <code>{custom_blocked}</code> blocked · <code>{allowed}</code> allowed\n"
+            "🔐 Trusted hashes: <code>{trusted_hashes}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Choose a module below. Main safety settings are shown first."
+        ),
+        "btn_admin_logs": "📝 Admin Logs",
+        "btn_refresh_admin_logs": "🔄 Refresh Admin Logs",
+        "btn_clear_admin_logs": "🧹 Clear Admin Logs",
+        "admin_logs_title": "📝 <b>Admin Action Logs</b>\n💬 <b>{group}</b>\nTotal: <code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
+        "admin_logs_empty": "No admin actions have been recorded for this group yet.",
+        "admin_logs_cleared": "✅ Admin action logs cleared for this group.",
+        "admin_panel_tip": "💡 Tip: Keep <b>Smart Auto Action</b> ON for active groups and check <b>Health</b> after changing bot permissions.",
+        "status_ready": "🟢 <b>Ready</b>: bot can protect this group.",
+        "status_attention": "🟡 <b>Needs attention</b>: check bot permissions.",
+        "status_no_access": "🔴 <b>No access</b>: bot was removed or cannot read this group.",
+        "btn_quick_auto": "🤖 Auto Rules",
+        "btn_quick_health": "🩺 Health",
+    },
+    "km": {
+        "group_admin_title": (
+            "🛡️ <b>Admin Control Center v4</b>\n"
+            "💬 <b>{group}</b>\n"
+            "<code>{chat_id}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "{health_status}\n"
+            "🛡 Protection: <b>{protection}</b>\n"
+            "🔥 Strictness: <code>{strictness}</code>\n"
+            "🔇 Silent mode: <code>{silent}</code>\n"
+            "🤖 Auto action: <code>{auto_action}</code>\n"
+            "👮 Admin alerts: <code>{admin_ready}</code>/<code>{admin_total}</code> ready\n"
+            "🚨 Open incidents: <code>{open_incidents}</code>\n"
+            "📝 Admin logs: <code>{admin_logs}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🧪 Security: <code>{custom_blocked}</code> blocked · <code>{allowed}</code> allowed\n"
+            "🔐 Trusted hashes: <code>{trusted_hashes}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ជ្រើស module ខាងក្រោម។ Settings សំខាន់ៗនៅខាងលើ។"
+        ),
+        "btn_admin_logs": "📝 Admin Logs",
+        "btn_refresh_admin_logs": "🔄 Refresh Admin Logs",
+        "btn_clear_admin_logs": "🧹 Clear Admin Logs",
+        "admin_logs_title": "📝 <b>Admin Action Logs</b>\n💬 <b>{group}</b>\nសរុប: <code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
+        "admin_logs_empty": "មិនទាន់មាន admin action log សម្រាប់ក្រុមនេះទេ។",
+        "admin_logs_cleared": "✅ បានសម្អាត admin action logs សម្រាប់ក្រុមនេះ។",
+        "admin_panel_tip": "💡 ណែនាំ: បើក <b>Smart Auto Action</b> សម្រាប់ក្រុម active ហើយពិនិត្យ <b>Health</b> បន្ទាប់ពីកែ permission។",
+        "status_ready": "🟢 <b>Ready</b>: bot អាចការពារក្រុមនេះបាន។",
+        "status_attention": "🟡 <b>ត្រូវពិនិត្យ</b>: សូមពិនិត្យ bot permissions។",
+        "status_no_access": "🔴 <b>No access</b>: bot ត្រូវបានដកចេញ ឬមិនអាចចូលក្រុមនេះ។",
+        "btn_quick_auto": "🤖 Auto Rules",
+        "btn_quick_health": "🩺 Health",
+    },
+}
+for _lang, _items in ADMIN_PANEL_V4_TEXTS.items():
+    TEXTS.setdefault(_lang, {}).update(_items)
+
 DEFAULT_GROUP_SETTINGS: dict[str, Any] = {
     "protection_enabled": True,
     "strictness": "standard",  # standard=.exe/PE only, high=all dangerous extensions, strict=high + archive-risk focus
@@ -3876,24 +3952,29 @@ async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
 def group_settings_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
     settings = get_group_settings(bot_data, chat_id)
     protection_label = tr(bot_data, user_id, "label_protection_on" if settings.get("protection_enabled", True) else "label_protection_off")
+    access_badge = tr(bot_data, user_id, "label_no_access" if is_chat_api_suppressed(bot_data, chat_id) else "label_access_ok")
     silent_label = tr(bot_data, user_id, "btn_silent_mode_on" if settings.get("silent_mode", False) else "btn_group_notice_on")
     strictness = _strictness_label(bot_data, user_id, str(settings.get("strictness", "standard"))).upper()
     auto_mode = _auto_action_label(settings.get("auto_action_mode")).upper()
-    access_badge = tr(bot_data, user_id, "label_no_access" if is_chat_api_suppressed(bot_data, chat_id) else "label_access_ok")
+
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(f"{protection_label} · {access_badge}", callback_data=f"gap:{chat_id}:protection")],
             [
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_quick_auto"), callback_data=f"gap:{chat_id}:auto"),
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_quick_health"), callback_data=f"gap:{chat_id}:health"),
+            ],
+            [
                 InlineKeyboardButton(tr(bot_data, user_id, "btn_scanner_center"), callback_data=f"gap:{chat_id}:scanner"),
-                InlineKeyboardButton(tr(bot_data, user_id, "btn_health_check_short"), callback_data=f"gap:{chat_id}:health"),
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_admin_alerts_short"), callback_data=f"gap:{chat_id}:admins"),
             ],
             [
                 InlineKeyboardButton(tr(bot_data, user_id, "btn_incidents_short"), callback_data=f"gap:{chat_id}:incidents"),
                 InlineKeyboardButton(tr(bot_data, user_id, "btn_risk_users"), callback_data=f"gap:{chat_id}:risk"),
             ],
             [
-                InlineKeyboardButton(tr(bot_data, user_id, "btn_admin_alerts_short"), callback_data=f"gap:{chat_id}:admins"),
-                InlineKeyboardButton(f"{tr(bot_data, user_id, 'label_auto')}: {auto_mode}", callback_data=f"gap:{chat_id}:auto"),
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_admin_logs"), callback_data=f"gap:{chat_id}:admin_logs"),
+                InlineKeyboardButton(f"🤖 {auto_mode}", callback_data=f"gap:{chat_id}:auto"),
             ],
             [
                 InlineKeyboardButton(tr(bot_data, user_id, "btn_blocked_formats_short"), callback_data=f"gfmt:{chat_id}:menu"),
@@ -3911,6 +3992,7 @@ def group_settings_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
         ]
     )
+
 
 def format_manager_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
     settings = get_group_settings(bot_data, chat_id)
@@ -3939,6 +4021,84 @@ def remove_format_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int)
     return InlineKeyboardMarkup(rows)
 
 
+def _admin_action_logs(bot_data: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = bot_data.get("admin_action_logs", [])
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+    bot_data["admin_action_logs"] = []
+    return []
+
+
+def _record_admin_action_log_locked(
+    bot_data: dict[str, Any],
+    *,
+    chat_id: int,
+    admin_id: int,
+    admin_name: str,
+    action: str,
+    target_id: int | None = None,
+    target_name: str = "",
+    result: str = "",
+) -> None:
+    logs = _admin_action_logs(bot_data)
+    logs.insert(0, {
+        "chat_id": int(chat_id),
+        "admin_id": int(admin_id),
+        "admin_name": str(admin_name or admin_id),
+        "target_id": int(target_id) if target_id is not None else None,
+        "target_name": str(target_name or ""),
+        "action": str(action or "unknown"),
+        "result": str(result or ""),
+        "created_at_ms": now_ms(),
+    })
+    del logs[MAX_ADMIN_ACTION_LOG_ITEMS:]
+    bot_data["admin_action_logs"] = logs
+
+
+def _admin_log_count_for_chat(bot_data: dict[str, Any], chat_id: int) -> int:
+    return sum(1 for item in _admin_action_logs(bot_data) if str(item.get("chat_id")) == str(int(chat_id)))
+
+
+def _open_incident_count_for_chat(bot_data: dict[str, Any], chat_id: int) -> int:
+    incidents = bot_data.get("incidents", {})
+    if not isinstance(incidents, dict):
+        return 0
+    return sum(1 for item in incidents.values() if isinstance(item, dict) and str(item.get("chat_id")) == str(int(chat_id)) and not item.get("done"))
+
+
+def _admin_alert_ready_counts_from_state(bot_data: dict[str, Any], chat_id: int) -> tuple[int, int]:
+    cache = bot_data.get("admin_ids_cache", {}) if isinstance(bot_data.get("admin_ids_cache", {}), dict) else {}
+    record = cache.get(str(int(chat_id))) or cache.get(int(chat_id)) or {}
+    admin_ids: list[int] = []
+    if isinstance(record, dict):
+        value = record.get("value") or record.get("admin_ids") or []
+        if isinstance(value, list):
+            for item in value:
+                try:
+                    admin_ids.append(int(item))
+                except (TypeError, ValueError):
+                    pass
+    ready_user_ids: set[int] = set()
+    user_state = bot_data.get("user_state", {})
+    if isinstance(user_state, dict):
+        for uid in user_state.keys():
+            try:
+                ready_user_ids.add(int(uid))
+            except (TypeError, ValueError):
+                pass
+    ready = sum(1 for admin_id in admin_ids if admin_id in ready_user_ids)
+    return ready, len(admin_ids)
+
+
+def _group_health_status(bot_data: dict[str, Any], user_id: int, chat_id: int) -> str:
+    if is_chat_api_suppressed(bot_data, chat_id):
+        return tr(bot_data, user_id, "status_no_access")
+    perms = get_bot_member_from_state(bot_data, chat_id)
+    if perms is not None and has_delete_permission(perms):
+        return tr(bot_data, user_id, "status_ready")
+    return tr(bot_data, user_id, "status_attention")
+
+
 async def render_group_settings_panel(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -3953,12 +4113,14 @@ async def render_group_settings_panel(
         settings = dict(get_group_settings(context.bot_data, chat_id))
         allowed = format_extension_list(settings.get("allowed_extensions", []))
         custom_blocked = format_extension_list(settings.get("custom_blocked_extensions", []))
+        admin_ready, admin_total = _admin_alert_ready_counts_from_state(context.bot_data, chat_id)
         text = tr(
             context.bot_data,
             user_id,
             "group_admin_title",
             group=h(title),
             chat_id=chat_id,
+            health_status=_group_health_status(context.bot_data, user_id, chat_id),
             protection=_on_off(context.bot_data, user_id, bool(settings.get("protection_enabled"))),
             strictness=_strictness_label(context.bot_data, user_id, str(settings.get("strictness", "standard"))),
             silent=_on_off(context.bot_data, user_id, bool(settings.get("silent_mode")), key_on="silent_on", key_off="silent_off"),
@@ -3966,14 +4128,18 @@ async def render_group_settings_panel(
             custom_blocked=h(custom_blocked),
             trusted_hashes=len(settings.get("trusted_file_hashes", [])) if isinstance(settings.get("trusted_file_hashes"), list) else 0,
             auto_action=h(_auto_action_label(settings.get("auto_action_mode"))),
+            admin_ready=admin_ready,
+            admin_total=admin_total,
+            open_incidents=_open_incident_count_for_chat(context.bot_data, chat_id),
+            admin_logs=_admin_log_count_for_chat(context.bot_data, chat_id),
         )
+        text = f"{text}\n\n{tr(context.bot_data, user_id, 'admin_panel_tip')}"
         keyboard = group_settings_keyboard(context.bot_data, user_id, chat_id)
     if no_access and not notice:
         notice = tr(context.bot_data, user_id, "group_no_access")
     if notice:
         text = f"{notice}\n\n{text}"
     await send_or_edit_panel(update, text, keyboard)
-
 
 
 async def render_format_manager_panel(
@@ -4261,6 +4427,49 @@ async def render_auto_actions_panel(update: Update, context: ContextTypes.DEFAUL
     await send_or_edit_panel(update, text, keyboard)
 
 
+async def render_group_admin_logs_panel(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    chat_id: int,
+    *,
+    notice: str = "",
+) -> None:
+    async with BOT_DATA_LOCK:
+        title = get_chat_title_from_state(context.bot_data, chat_id)
+        logs = [item for item in _admin_action_logs(context.bot_data) if str(item.get("chat_id")) == str(int(chat_id))]
+        lines: list[str] = []
+        for idx, item in enumerate(logs[:15], 1):
+            admin_id = _safe_int(item.get("admin_id"), 0)
+            admin_name = str(item.get("admin_name") or admin_id or "Admin")
+            target_id_raw = item.get("target_id")
+            target_name = str(item.get("target_name") or "")
+            target_text = ""
+            if target_id_raw not in (None, "", 0):
+                target_id = _safe_int(target_id_raw, 0)
+                if target_id:
+                    target_text = f" → {user_link(target_id, target_name or str(target_id))}"
+            created = _format_saved_ms(item.get("created_at_ms"))
+            result = str(item.get("result") or "")
+            result_line = f"\nResult: <code>{h(result)[:80]}</code>" if result else ""
+            lines.append(
+                f"<b>{idx}. {h(str(item.get('action') or 'action'))}</b>{target_text}\n"
+                f"By: {user_link(admin_id, admin_name) if admin_id else h(admin_name)} · <code>{h(created)}</code>{result_line}"
+            )
+        if not lines:
+            lines.append(tr(context.bot_data, user_id, "admin_logs_empty"))
+        text = tr(context.bot_data, user_id, "admin_logs_title", group=h(title), total=len(logs), items="\n\n".join(lines))
+        if notice:
+            text = f"{notice}\n\n{text}"
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh_admin_logs"), callback_data=f"gap:{chat_id}:admin_logs")],
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_clear_admin_logs"), callback_data=f"gap:{chat_id}:clear_admin_logs")],
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_back"), callback_data=f"grp:{chat_id}")],
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
+        ])
+    await send_or_edit_panel(update, text, keyboard)
+
+
 # ─────────────────────────────────────────────────────────────
 # DEVELOPER DASHBOARD - BUTTON ONLY
 # ─────────────────────────────────────────────────────────────
@@ -4268,6 +4477,7 @@ async def render_auto_actions_panel(update: Update, context: ContextTypes.DEFAUL
 DEV_USERS_PAGE_SIZE = 8
 DEV_GROUPS_PAGE_SIZE = 10
 MAX_USER_FEEDBACK_ITEMS = _env_int("MAX_USER_FEEDBACK_ITEMS", 200, min_value=20, max_value=2000)
+MAX_ADMIN_ACTION_LOG_ITEMS = _env_int("MAX_ADMIN_ACTION_LOG_ITEMS", 500, min_value=50, max_value=5000)
 
 
 
@@ -4821,14 +5031,18 @@ async def group_settings_callback(update: Update, context: ContextTypes.DEFAULT_
         settings = get_group_settings(context.bot_data, chat_id)
         if field == "protection":
             settings["protection_enabled"] = not bool(settings.get("protection_enabled", True))
+            action_label = f"toggle protection -> {settings['protection_enabled']}"
         elif field == "strictness":
             current_strictness = str(settings.get("strictness") or "standard")
             settings["strictness"] = {"standard": "high", "high": "strict", "strict": "standard"}.get(current_strictness, "standard")
+            action_label = f"set strictness -> {settings['strictness']}"
         elif field == "silent":
             settings["silent_mode"] = not bool(settings.get("silent_mode", False))
+            action_label = f"toggle silent mode -> {settings['silent_mode']}"
         else:
             await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
             return
+        _record_admin_action_log_locked(context.bot_data, chat_id=chat_id, admin_id=user_id, admin_name=query.from_user.full_name, action=action_label, result="settings updated")
         state = get_user_state(context.bot_data, int(user_id))
         groups = state.setdefault("groups", [])
         if int(chat_id) not in [int(g) for g in groups if str(g).lstrip("-").isdigit()]:
@@ -5019,6 +5233,13 @@ async def group_admin_panel_callback(update: Update, context: ContextTypes.DEFAU
         await render_group_incidents_panel(update, context, user_id, chat_id, notice=tr(context.bot_data, user_id, "incidents_cleared"))
     elif action == "risk": await render_group_risk_panel(update, context, user_id, chat_id)
     elif action == "admins": await render_group_admin_alert_panel(update, context, user_id, chat_id)
+    elif action == "admin_logs": await render_group_admin_logs_panel(update, context, user_id, chat_id)
+    elif action == "clear_admin_logs":
+        async with BOT_DATA_LOCK:
+            logs = [item for item in _admin_action_logs(context.bot_data) if str(item.get("chat_id")) != str(int(chat_id))]
+            context.bot_data["admin_action_logs"] = logs
+            await persist_context_memory(context, reason="clear_admin_action_logs", force=True, caller_holds_lock=True)
+        await render_group_admin_logs_panel(update, context, user_id, chat_id, notice=tr(context.bot_data, user_id, "admin_logs_cleared"))
     elif action == "allowed": await render_allowed_manager_panel(update, context, user_id, chat_id)
     elif action == "health": await render_group_health_panel(update, context, user_id, chat_id)
     elif action == "auto": await render_auto_actions_panel(update, context, user_id, chat_id)
@@ -5109,7 +5330,10 @@ async def auto_actions_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id)); return
     async with BOT_DATA_LOCK:
-        settings = get_group_settings(context.bot_data, chat_id); settings["auto_action_mode"] = mode
+        settings = get_group_settings(context.bot_data, chat_id)
+        old_mode = str(settings.get("auto_action_mode") or "off")
+        settings["auto_action_mode"] = mode
+        _record_admin_action_log_locked(context.bot_data, chat_id=chat_id, admin_id=user_id, admin_name=query.from_user.full_name, action=f"auto action {old_mode} -> {mode}", result="auto rule updated")
         await persist_context_memory(context, reason="auto_action_update", force=True, caller_holds_lock=True)
     await render_auto_actions_panel(update, context, user_id, chat_id, notice=tr(context.bot_data, user_id, "auto_saved"))
 
@@ -5851,6 +6075,7 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 incident["handled_by_name"] = query.from_user.full_name
                 incident["handled_at_ms"] = now_ms()
                 incident["action"] = action
+            _record_admin_action_log_locked(context.bot_data, chat_id=chat_id, admin_id=admin_id, admin_name=query.from_user.full_name, action=f"incident {action}", target_id=sender_id, target_name=sender_name_raw, result="success" if action_success else "failed")
             await persist_context_memory(context, reason="incident_action", force=True, caller_holds_lock=True)
             final_text = format_incident_alert_for_admin(context.bot_data, admin_id, incident)
 
@@ -6347,7 +6572,7 @@ def build_application() -> Application:
     app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups|help|feedback)$"))
     app.add_handler(CallbackQueryHandler(developer_dashboard_callback, pattern=r"^dev:(home|refresh|memory|feedback|hash(?::(?:toggle|size(?::\d+)?|limit(?::\d+)?))?|users(?::\d+)?|user:-?\d+|groups(?::\d+)?)$"))
     app.add_handler(CallbackQueryHandler(group_dashboard_callback, pattern=r"^grp:-?\d+$"))
-    app.add_handler(CallbackQueryHandler(group_admin_panel_callback, pattern=r"^gap:-?\d+:(protection|scanner|incidents|risk|admins|allowed|health|auto|clear_incidents|refresh)$"))
+    app.add_handler(CallbackQueryHandler(group_admin_panel_callback, pattern=r"^gap:-?\d+:(protection|scanner|incidents|risk|admins|admin_logs|clear_admin_logs|allowed|health|auto|clear_incidents|refresh)$"))
     app.add_handler(CallbackQueryHandler(group_settings_callback, pattern=r"^gset:-?\d+:(protection|strictness|silent)$"))
     app.add_handler(CallbackQueryHandler(format_manager_callback, pattern=r"^gfmt:-?\d+:(menu|add|edit|remove|clear)$"))
     app.add_handler(CallbackQueryHandler(delete_format_callback, pattern=r"^gfmtdel:-?\d+:[A-Za-z0-9_.+-]{1,16}$"))
