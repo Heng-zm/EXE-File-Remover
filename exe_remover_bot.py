@@ -154,6 +154,16 @@ TELEGRAM_CONNECTION_POOL_SIZE = _env_int("TELEGRAM_CONNECTION_POOL_SIZE", 32, mi
 TELEGRAM_POOL_TIMEOUT = _env_float("TELEGRAM_POOL_TIMEOUT", 10.0, min_value=1.0)
 ADMIN_CACHE_TTL_SECONDS = _env_int("ADMIN_CACHE_TTL_SECONDS", 180, min_value=5)
 BOT_MEMBER_CACHE_TTL_SECONDS = _env_int("BOT_MEMBER_CACHE_TTL_SECONDS", 60, min_value=5)
+# When Telegram says the bot was kicked/removed from a group, suppress repeated
+# live API checks for that chat. This prevents Render log spam and Telegram
+# rate-limit pressure while still self-healing when my_chat_member reports the
+# bot was added back.
+INACCESSIBLE_CHAT_API_SUPPRESS_SECONDS = _env_int(
+    "INACCESSIBLE_CHAT_API_SUPPRESS_SECONDS",
+    3600,
+    min_value=60,
+    max_value=86400,
+)
 INCIDENT_TTL_SECONDS = _env_int("INCIDENT_TTL_SECONDS", 86400, min_value=60)
 KEEP_AWAKE_INTERVAL_SECONDS = _env_int("KEEP_AWAKE_INTERVAL_SECONDS", 600, min_value=60)
 DROP_PENDING_UPDATES = _env_bool("DROP_PENDING_UPDATES", False)
@@ -287,7 +297,7 @@ class FileScanResult:
 
 
 # ─────────────────────────────────────────────────────────────
-# TRANSLATIONS - HTML parse mode, not Markdown (OPTIMIZED FOR UX)
+# TRANSLATIONS - HTML parse mode, not Markdown
 # ─────────────────────────────────────────────────────────────
 
 TEXTS: dict[str, dict[str, str]] = {
@@ -296,33 +306,33 @@ TEXTS: dict[str, dict[str, str]] = {
         "lang_set": "✅ Got it! I’ll speak to you in <b>English</b> from now on.",
         "welcome": (
             "👋 <b>Hey there! I’m your EXE Remover Bot.</b>\n\n"
-            "🛡️ I keep your groups safe by instantly deleting dangerous <code>.exe</code> files.\n"
-            "📢 If someone sends a blocked file, I’ll DM the admins so they can easily <b>Ban</b>, <b>Warn</b>, or <b>Ignore</b> the user.\n\n"
-            "➡️ Add me to your group and grant me <b>Delete Messages</b> permission to get started."
+            "🛡️ I keep your groups safe by instantly removing dangerous <code>.exe</code> files.\n"
+            "📢 When someone sends one, I’ll DM the admin team with quick options to <b>Ban</b>, <b>Warn</b>, or <b>Ignore</b>.\n\n"
+            "➡️ Add me to your group and give me <b>Delete Messages</b> permission."
         ),
         "add_btn": "➕ Add Me to a Group",
         "check_btn": "🔄 Check My Permissions",
-        "private_start": "Start a private chat with me to change your language and manage settings.",
+        "private_start": "Open a private chat with me to choose language and manage settings.",
         "no_group": "⚠️ I haven’t detected your group yet. Add me to a group first, then click <b>Check My Permissions</b>.",
         "not_admin": (
             "❌ <b>I’m not an admin in your group yet.</b>\n\n"
-            "Please go to Group Settings → Administrators → Add Member → select me, and enable <b>Delete Messages</b>."
+            "Go to Group Settings → Administrators → Add Member → select me, then enable <b>Delete Messages</b>."
         ),
         "no_delete_perm": (
-            "⚠️ <b>I’m an admin, but I don't have permission to delete messages.</b>\n\n"
-            "Please edit my admin rights and enable <b>Delete Messages</b>."
+            "⚠️ <b>I’m an admin, but I can’t delete messages yet.</b>\n\n"
+            "Please enable <b>Delete Messages</b> for me."
         ),
         "setup_ok": (
-            "🎉 <b>Awesome! I’m fully setup and ready.</b>\n\n"
-            "I’m now guarding <b>{group}</b>. If a blocked file appears, I’ll delete it and notify the admin team. 🛡️"
+            "🎉 <b>Awesome! I’m ready.</b>\n\n"
+            "I’m now guarding <b>{group}</b>. If a blocked file appears, I’ll delete it and alert the admin team. 🛡️"
         ),
         "exe_removed_group": (
             "🚫 <b>Blocked file removed.</b> {user}\n"
             "🧪 <b>Reason:</b> {reason}\n"
-            "Executable files (.exe, etc.) are strictly prohibited here for everyone’s safety."
+            "Executable files are not allowed here for everyone’s safety."
         ),
         "admin_alert": (
-            "🚨 <b>Security Alert: Dangerous File Deleted</b>\n"
+            "🚨 <b>Security Alert: File Caught &amp; Deleted</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "👤 <b>Sender:</b> {sender_name} <code>{sender_id}</code>\n"
             "📄 <b>File Name:</b> <code>{file_name}</code>\n"
@@ -336,166 +346,166 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_warn": "⚠️ Warn User",
         "btn_ignore": "✅ Ignore",
         "action_ban_ok": "🔨 <b>Action taken:</b> {name} has been banned and kicked from the group.",
-        "action_ban_fail": "❌ I couldn’t ban the user. Please ensure I have <b>Ban Users</b> permission.",
-        "action_warn_ok": "⚠️ <b>Action taken:</b> A formal warning has been sent to {name} in the group.",
-        "action_warn_fail": "❌ I couldn’t send the warning message in the group.",
+        "action_ban_fail": "❌ I couldn’t ban them. Make sure I have <b>Ban Users</b> permission.",
+        "action_warn_ok": "⚠️ <b>Action taken:</b> I sent a formal warning for {name} in the group.",
+        "action_warn_fail": "❌ I couldn’t send the warning in the group.",
         "action_ignore_ok": "✅ <b>Action taken:</b> This incident has been ignored.",
         "action_done": "<i>Another admin has already handled this incident.</i>",
-        "action_expired": "<i>This incident has expired or no longer exists.</i>",
-        "action_not_admin": "❌ You are no longer an admin in that group. Action rejected.",
+        "action_expired": "<i>This incident is expired or no longer exists.</i>",
+        "action_not_admin": "❌ You are no longer an admin in that group, so this action was rejected.",
         "handled_by": "👮 <b>Handled by:</b> {admin}",
-        "delete_failed": "❌ I detected a blocked file but couldn't delete it. Please give me <b>Delete Messages</b> permission.",
+        "delete_failed": "❌ I detected a blocked file, but I could not delete it. Please give me <b>Delete Messages</b> permission.",
         "warn_in_group": (
             "⚠️ <b>Official Warning</b> — {user}\n"
-            "Sending executable programs or files is strictly prohibited here. Do not send them again."
+            "Sending executable files is strictly prohibited here. Please do not send them again."
         ),
         "help": (
             "💡 <b>EXE Remover Bot — Quick Guide</b>\n\n"
-            "/start — Choose language and setup\n"
-            "/help — Show this guide\n"
-            "/status — Check my permissions in the group\n"
-            "/admins — See which admins receive alerts\n"
-            "/scanner — View file scanner settings\n"
-            "/scanname &lt;filename&gt; — Test if a filename is blocked\n"
-            "/memory — Show bot system and memory status"
+            "/start — Choose language and settings\n"
+            "/help — Show this help\n"
+            "/status — Check bot permissions inside a group\n"
+            "/admins — See group admins and alert readiness\n"
+            "/scanner — Show scanner settings\n"
+            "/scanname &lt;filename&gt; — Test a filename\n"
+            "/memory — Show Supabase/Redis/user memory status"
         ),
-        "status_ok": "✅ Everything is running smoothly. I can delete blocked files and alert admins.",
-        "status_no": "❌ I’m currently inactive here. I either need to be made an Admin or given <b>Delete Messages</b> permission.",
+        "status_ok": "✅ Everything is running correctly. I can delete blocked files and alert admins.",
+        "status_no": "❌ I’m inactive here because I’m not admin or I don’t have <b>Delete Messages</b> permission.",
         "status_error": "❌ Permission check failed: <code>{error}</code>",
-        "admins_header": "👮 <b>Group Admin Alert Status</b>\n",
-        "admins_enabled": "✅ Alerts enabled",
-        "admins_need_start": "⚠️ Needs to send /start in private chat",
-        "admins_note": "\n<i>Note: Only admins who have started a private chat with the bot will receive DM alerts.</i>",
-        "group_only": "Please send this command inside a group.",
+        "admins_header": "👮 <b>Group admin alert status</b>\n",
+        "admins_enabled": "✅ alerts enabled",
+        "admins_need_start": "⚠️ needs /start in private chat",
+        "admins_note": "\n<i>Only admins who have privately started the bot can receive DM alerts.</i>",
+        "group_only": "Send this command inside a group.",
         "scanner_status": (
-            "🧪 <b>Suspicious File Scanner Settings</b>\n"
-            "Status: <code>{enabled}</code>\n"
-            "Deep File Scan (Magic/Header): <code>{magic}</code>\n"
-            "Scan Inside Archives: <code>{archive}</code>\n"
-            "Max Download Limit: <code>{max_bytes}</code> bytes\n"
-            "Blocked Formats: <code>{blocked}</code>\n"
-            "Dangerous Formats: <code>{dangerous}</code>\n"
-            "Archive Formats: <code>{archives}</code>\n"
-            "Trusted File Whitelist: <code>{hash_whitelist}</code>"
+            "🧪 <b>Suspicious File Scanner</b>\n"
+            "Enabled: <code>{enabled}</code>\n"
+            "Magic/header scan: <code>{magic}</code>\n"
+            "Archive-name scan: <code>{archive}</code>\n"
+            "Max download scan: <code>{max_bytes}</code> bytes\n"
+            "Blocked extensions: <code>{blocked}</code>\n"
+            "Dangerous extensions: <code>{dangerous}</code>\n"
+            "Archive extensions: <code>{archives}</code>\n"
+            "Trusted hash whitelist: <code>{hash_whitelist}</code>"
         ),
         "scanname_usage": "Usage: <code>/scanname invoice.pdf.exe</code>",
         "scanname_blocked": "🚫 <b>Blocked:</b> <code>{file}</code>\n🧪 <b>Reason:</b> {reason}",
-        "scanname_clean": "✅ <b>Safe (by filename):</b> <code>{file}</code>",
+        "scanname_clean": "✅ <b>No filename-only danger found:</b> <code>{file}</code>",
         "memory_status": (
-            "🧠 <b>System & Memory Status</b>\n"
-            "Database: <code>{backend}</code>\n"
+            "🧠 <b>Bot Memory</b>\n"
+            "Backend: <code>{backend}</code>\n"
             "Supabase: <code>{supabase}</code>\n"
             "Redis: <code>{redis}</code>\n"
-            "Users saved: <code>{users}</code>\n"
-            "Groups saved: <code>{groups}</code>\n"
-            "Active incidents: <code>{incidents}</code>\n"
-            "Last Supabase sync: <code>{supabase_last_save}</code>\n"
-            "Last Redis sync: <code>{redis_last_save}</code>"
+            "Known users: <code>{users}</code>\n"
+            "Saved groups: <code>{groups}</code>\n"
+            "Open incidents: <code>{incidents}</code>\n"
+            "Last Supabase save: <code>{supabase_last_save}</code>\n"
+            "Last Redis save: <code>{redis_last_save}</code>"
         ),
-        "unknown_error": "Oops! Something went wrong. Please try again.",
+        "unknown_error": "Something went wrong. Please try again.",
     },
     "km": {
         "select_lang": "🌐 Please choose your preferred language / សូមជ្រើសរើសភាសារបស់អ្នក៖",
-        "lang_set": "✅ ទទួលបាន! ខ្ញុំនឹងប្រើប្រាស់ <b>ភាសាខ្មែរ</b> សម្រាប់ទំនាក់ទំនងជាមួយអ្នក។",
+        "lang_set": "✅ បានកំណត់យក <b>ភាសាខ្មែរ</b> រួចរាល់ហើយបាទ។",
         "welcome": (
-            "👋 <b>សួស្ដី! ខ្ញុំជា EXE Remover Bot។</b>\n\n"
-            "🛡️ ខ្ញុំជួយការពារគ្រុបរបស់អ្នក ដោយលុបចោលរាល់ឯកសារ <code>.exe</code> និងកម្មវិធីដែលមានហានិភ័យភ្លាមៗ។\n"
-            "📢 បើមានអ្នកផ្ញើឯកសារប្រភេទនេះ ខ្ញុំនឹងលុបវា រួចផ្ញើសារ (DM) ទៅកាន់ Admin ដើម្បីសម្រេចចិត្ត៖ <b>បណ្ដេញចេញ (Ban)</b>, <b>ព្រមាន (Warn)</b> ឬ <b>មិនអើពើ (Ignore)</b>។\n\n"
-            "➡️ សូម Add ខ្ញុំចូលគ្រុបរបស់អ្នក រួចផ្តល់សិទ្ធិ <b>Delete Messages</b> ជាការស្រេច។"
+            "👋 <b>សួស្ដីបាទ! ខ្ញុំជា EXE Remover Bot។</b>\n\n"
+            "🛡️ ខ្ញុំជួយការពារក្រុម ដោយលុបឯកសារ <code>.exe</code> ចោលភ្លាមៗ។\n"
+            "📢 ពេលមានអ្នកផ្ញើឯកសារប្រភេទនេះ ខ្ញុំនឹងផ្ញើ DM ទៅ Admin ជាមួយជម្រើស <b>Ban</b>, <b>Warn</b>, ឬ <b>Ignore</b>។\n\n"
+            "➡️ សូមបន្ថែមខ្ញុំទៅក្រុម ហើយផ្តល់សិទ្ធិ <b>Delete Messages</b>។"
         ),
-        "add_btn": "➕ Add ខ្ញុំចូលគ្រុប",
-        "check_btn": "🔄 ពិនិត្យមើលសិទ្ធិ (Permissions)",
-        "private_start": "សូមឆាតមកកាន់ខ្ញុំផ្ទាល់ (Private Chat) ដើម្បីប្តូរភាសា និងរៀបចំការកំណត់ផ្សេងៗ។",
-        "no_group": "⚠️ ខ្ញុំមិនទាន់ឃើញគ្រុបរបស់អ្នកទេ។ សូម Add ខ្ញុំចូលគ្រុបជាមុនសិន រួចចុចប៉ូតុង <b>ពិនិត្យមើលសិទ្ធិ</b>។",
+        "add_btn": "➕ បន្ថែមខ្ញុំទៅក្នុងក្រុម",
+        "check_btn": "🔄 ពិនិត្យសិទ្ធិ",
+        "private_start": "សូមបើកឆាតឯកជនជាមួយខ្ញុំ ដើម្បីជ្រើសរើសភាសា និងកំណត់ការប្រើប្រាស់។",
+        "no_group": "⚠️ ខ្ញុំមិនទាន់ឃើញក្រុមណាមួយទេ។ សូមបន្ថែមខ្ញុំទៅក្រុមជាមុនសិន រួចចុច <b>ពិនិត្យសិទ្ធិ</b>។",
         "not_admin": (
-            "❌ <b>ខ្ញុំមិនទាន់ជា Admin នៅក្នុងគ្រុបរបស់អ្នកនៅឡើយទេ។</b>\n\n"
-            "សូមចូលទៅកាន់ Group Settings → Administrators → Add Member → ជ្រើសរើសយកខ្ញុំ រួចបើកសិទ្ធិ <b>Delete Messages</b>។"
+            "❌ <b>ខ្ញុំមិនទាន់ជា Admin ក្នុងក្រុមរបស់អ្នកទេ។</b>\n\n"
+            "សូមចូល Group Settings → Administrators → Add Member → ជ្រើសខ្ញុំ ហើយបើកសិទ្ធិ <b>Delete Messages</b>។"
         ),
         "no_delete_perm": (
-            "⚠️ <b>ខ្ញុំជា Admin ហើយ ប៉ុន្តែមិនទាន់មានសិទ្ធិលុបសារទេ។</b>\n\n"
-            "សូមចូលទៅកែសិទ្ធិ Admin របស់ខ្ញុំ ដោយបើក <b>Delete Messages</b> ឱ្យបានត្រឹមត្រូវ។"
+            "⚠️ <b>ខ្ញុំជា Admin ប៉ុន្តែមិនទាន់មានសិទ្ធិលុបសារ។</b>\n\n"
+            "សូមបើកសិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំផងបាទ។"
         ),
         "setup_ok": (
-            "🎉 <b>រួចរាល់រាល់! ខ្ញុំត្រៀមខ្លួនរួចរាល់ហើយ។</b>\n\n"
-            "ពេលនេះខ្ញុំកំពុងការពារគ្រុប <b>{group}</b>។ បើមាននរណាផ្ញើឯកសារហាមឃាត់ ខ្ញុំនឹងលុបចោល ហើយរាយការណ៍ជូន Admin ភ្លាមៗ។ 🛡️"
+            "🎉 <b>រួចរាល់ហើយបាទ!</b>\n\n"
+            "ឥឡូវនេះខ្ញុំកំពុងការពារក្រុម <b>{group}</b>។ បើមានឯកសារហាមឃាត់ ខ្ញុំនឹងលុបវា និងរាយការណ៍ជូន Admin។ 🛡️"
         ),
         "exe_removed_group": (
-            "🚫 <b>ឯកសារត្រូវបានលុបចោល។</b> {user}\n"
-            "🧪 <b>មូលហេតុ៖</b> {reason}\n"
-            "ឯកសារប្រភេទកម្មវិធី (.exe, ។ល។) មិនត្រូវបានអនុញ្ញាតឱ្យផ្ញើឡើយ ដើម្បីសុវត្ថិភាពទាំងអស់គ្នា។"
+            "🚫 <b>បានលុបឯកសារហាមឃាត់។</b> {user}\n"
+            "🧪 <b>មូលហេតុ:</b> {reason}\n"
+            "ឯកសារដែលអាចដំណើរការបាន មិនត្រូវបានអនុញ្ញាតក្នុងក្រុមនេះទេ។"
         ),
         "admin_alert": (
-            "🚨 <b>ជូនដំណឹងសន្តិសុខ៖ រកឃើញ និងលុបឯកសារគ្រោះថ្នាក់</b>\n"
+            "🚨 <b>ការជូនដំណឹងសន្តិសុខ៖ រកឃើញ និងលុបឯកសារ</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "👤 <b>អ្នកផ្ញើ៖</b> {sender_name} <code>{sender_id}</code>\n"
-            "📄 <b>ឈ្មោះឯកសារ៖</b> <code>{file_name}</code>\n"
-            "🧪 <b>មូលហេតុ៖</b> {scan_result}\n"
-            "💬 <b>គ្រុប៖</b> {group_name} <code>{group_id}</code>\n"
-            "📅 <b>ម៉ោង៖</b> {time} UTC\n"
+            "👤 <b>អ្នកផ្ញើ:</b> {sender_name} <code>{sender_id}</code>\n"
+            "📄 <b>ឈ្មោះឯកសារ:</b> <code>{file_name}</code>\n"
+            "🧪 <b>មូលហេតុ:</b> {scan_result}\n"
+            "💬 <b>ក្រុម:</b> {group_name} <code>{group_id}</code>\n"
+            "📅 <b>ម៉ោង:</b> {time} UTC\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "តើ Admin ចង់ចាត់វិធានការបែបណា?"
+            "តើ Admin ចង់ចាត់ការបែបណា?"
         ),
-        "btn_ban": "🔨 បណ្ដេញចេញ (Ban)",
-        "btn_warn": "⚠️ ព្រមាន (Warn)",
-        "btn_ignore": "✅ មិនអើពើ (Ignore)",
-        "action_ban_ok": "🔨 <b>បានចាត់ការ៖</b> {name} ត្រូវបាន Ban និងបណ្តេញចេញពីគ្រុបរួចរាល់។",
-        "action_ban_fail": "❌ ខ្ញុំមិនអាច Ban គាត់បានទេ។ សូមប្រាកដថាខ្ញុំមានសិទ្ធិ <b>Ban Users</b>។",
-        "action_warn_ok": "⚠️ <b>បានចាត់ការ៖</b> ខ្ញុំបានផ្ញើសារព្រមានទៅកាន់ {name} នៅក្នុងគ្រុបរួចរាល់។",
-        "action_warn_fail": "❌ ខ្ញុំមិនអាចផ្ញើសារព្រមានចូលក្នុងគ្រុបបានទេ។",
-        "action_ignore_ok": "✅ <b>បានចាត់ការ៖</b> ករណីនេះត្រូវបានរំលង និងមិនអើពើ។",
-        "action_done": "<i>Admin ផ្សេងបានដោះស្រាយករណីនេះរួចរាល់ហើយ។</i>",
-        "action_expired": "<i>ករណីនេះបានផុតកំណត់ ឬមិនមានទិន្នន័យទៀតទេ។</i>",
-        "action_not_admin": "❌ អ្នកមិនមែនជា Admin ក្នុងគ្រុបនោះទៀតទេ ដូច្នេះមិនអាចបញ្ជាបានឡើយ។",
-        "handled_by": "👮 <b>ដោះស្រាយដោយ៖</b> {admin}",
-        "delete_failed": "❌ ខ្ញុំបានរកឃើញឯកសារហាមឃាត់ ប៉ុន្តែមិនអាចលុបវាបានទេ។ សូមជួយបើកសិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំផង។",
+        "btn_ban": "🔨 Ban User",
+        "btn_warn": "⚠️ Warn User",
+        "btn_ignore": "✅ Ignore",
+        "action_ban_ok": "🔨 <b>បានចាត់ការ:</b> បាន Ban និងបណ្តេញ {name} ចេញពីក្រុម។",
+        "action_ban_fail": "❌ ខ្ញុំមិនអាច Ban បានទេ។ សូមពិនិត្យសិទ្ធិ <b>Ban Users</b>។",
+        "action_warn_ok": "⚠️ <b>បានចាត់ការ:</b> ខ្ញុំបានផ្ញើសារព្រមានទៅក្រុមសម្រាប់ {name}។",
+        "action_warn_fail": "❌ ខ្ញុំមិនអាចផ្ញើសារព្រមានទៅក្រុមបានទេ។",
+        "action_ignore_ok": "✅ <b>បានចាត់ការ:</b> បានមិនអើពើករណីនេះ។",
+        "action_done": "<i>Admin ផ្សេងបានចាត់ការករណីនេះរួចរាល់ហើយ។</i>",
+        "action_expired": "<i>ករណីនេះផុតកំណត់ ឬមិនមានទៀតទេ។</i>",
+        "action_not_admin": "❌ អ្នកមិនមែនជា Admin ក្នុងក្រុមនោះទៀតទេ ដូច្នេះមិនអាចចាត់ការបាន។",
+        "handled_by": "👮 <b>ចាត់ការដោយ:</b> {admin}",
+        "delete_failed": "❌ ខ្ញុំបានរកឃើញឯកសារហាមឃាត់ ប៉ុន្តែមិនអាចលុបវាបានទេ។ សូមផ្តល់សិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំ។",
         "warn_in_group": (
             "⚠️ <b>ការព្រមានជាផ្លូវការ</b> — {user}\n"
-            "ការផ្ញើឯកសារប្រភេទកម្មវិធី (.exe) គឺត្រូវបានហាមឃាត់ដាច់ខាតនៅក្នុងគ្រុបនេះ។ សូមកុំផ្ញើវាម្តងទៀតឱ្យសោះ។"
+            "ការផ្ញើឯកសារដែលអាចដំណើរការបាន ត្រូវបានហាមឃាត់ក្នុងក្រុមនេះ។ សូមកុំផ្ញើវាម្តងទៀត។"
         ),
         "help": (
-            "💡 <b>EXE Remover Bot — ជំនួយសង្ខេប</b>\n\n"
-            "/start — ជ្រើសរើសភាសា និងរៀបចំការកំណត់\n"
-            "/help — បង្ហាញបញ្ជីជំនួយនេះ\n"
-            "/status — ពិនិត្យសិទ្ធិរបស់ Bot នៅក្នុងគ្រុប\n"
-            "/admins — មើលបញ្ជី Admin ដែលទទួលសេចក្តីរាយការណ៍\n"
-            "/scanner — មើលការកំណត់ប្រព័ន្ធ Scan ឯកសារ\n"
-            "/scanname &lt;filename&gt; — ធ្វើតេស្តសាកល្បងឈ្មោះឯកសារ\n"
-            "/memory — ពិនិត្យមើលប្រព័ន្ធ System និងអង្គចងចាំរបស់ Bot"
+            "💡 <b>EXE Remover Bot — ជំនួយ</b>\n\n"
+            "/start — ជ្រើសរើសភាសា និងកំណត់\n"
+            "/help — បង្ហាញជំនួយ\n"
+            "/status — ពិនិត្យសិទ្ធិ Bot ក្នុងក្រុម\n"
+            "/admins — មើលស្ថានភាព Admin ទទួល Alert\n"
+            "/scanner — មើលការកំណត់ Scanner\n"
+            "/scanname &lt;filename&gt; — សាកល្បងឈ្មោះឯកសារ\n"
+            "/memory — មើលស្ថានភាព Supabase/Redis/User memory"
         ),
-        "status_ok": "✅ ដំណើរការល្អជាប្រក្រតី។ ខ្ញុំអាចលុបឯកសារហាមឃាត់ និងរាយការណ៍ជូន Admin បាន។",
-        "status_no": "❌ ខ្ញុំមិនទាន់អាចដំណើរការបានទេ។ ខ្ញុំត្រូវតែជា Admin និងមានសិទ្ធិ <b>Delete Messages</b> ជាមុនសិន។",
-        "status_error": "❌ ការពិនិត្យសិទ្ធិមានបញ្ហា៖ <code>{error}</code>",
-        "admins_header": "👮 <b>ស្ថានភាព Admin ទទួលសេចក្តីរាយការណ៍</b>\n",
-        "admins_enabled": "✅ ត្រៀមទទួលការរាយការណ៍",
-        "admins_need_start": "⚠️ ត្រូវចុច /start ក្នុង Private Chat ជាមុនសិន",
-        "admins_note": "\n<i>ចំណាំ៖ មានតែ Admin ដែលបានចុច /start ឆាតផ្ទាល់ជាមួយ Bot ប៉ុណ្ណោះ ទើបអាចទទួលបានសាររាយការណ៍ (DM Alert)។</i>",
-        "group_only": "សូមផ្ញើ Command នេះនៅក្នុងគ្រុបផ្ទាល់។",
+        "status_ok": "✅ ដំណើរការត្រឹមត្រូវ។ ខ្ញុំអាចលុបឯកសារហាមឃាត់ និងរាយការណ៍ Admin បាន។",
+        "status_no": "❌ ខ្ញុំមិនដំណើរការនៅទីនេះទេ ព្រោះមិនមែនជា Admin ឬមិនមានសិទ្ធិ <b>Delete Messages</b>។",
+        "status_error": "❌ ពិនិត្យសិទ្ធិបរាជ័យ: <code>{error}</code>",
+        "admins_header": "👮 <b>ស្ថានភាព Admin ទទួល Alert</b>\n",
+        "admins_enabled": "✅ បើកទទួល Alert",
+        "admins_need_start": "⚠️ ត្រូវ /start ក្នុងឆាតឯកជន",
+        "admins_note": "\n<i>មានតែ Admin ដែលបាន /start ជាមួយ Bot ក្នុងឆាតឯកជនប៉ុណ្ណោះ ទើបទទួលបាន DM Alert។</i>",
+        "group_only": "សូមផ្ញើ command នេះនៅក្នុងក្រុម។",
         "scanner_status": (
-            "🧪 <b>ការកំណត់ប្រព័ន្ធស្កេនឯកសារ (Scanner)</b>\n"
-            "ស្ថានភាពបើក/បិទ៖ <code>{enabled}</code>\n"
-            "ស្កេនស៊ីជម្រៅ (Magic/Header)៖ <code>{magic}</code>\n"
-            "ស្កេនឯកសារក្នុង Archive៖ <code>{archive}</code>\n"
-            "ទំហំ Download ស្កេនធំបំផុត៖ <code>{max_bytes}</code> bytes\n"
-            "ប្រភេទកន្ទុយដែល Block ចោល៖ <code>{blocked}</code>\n"
-            "ប្រភេទកន្ទុយគ្រោះថ្នាក់៖ <code>{dangerous}</code>\n"
-            "ប្រភេទកន្ទុយ Archive៖ <code>{archives}</code>\n"
-            "មុខងារហ្វាលដែលទុកចិត្ត (Whitelist)៖ <code>{hash_whitelist}</code>"
+            "🧪 <b>Suspicious File Scanner</b>\n"
+            "បើក: <code>{enabled}</code>\n"
+            "ពិនិត្យ header: <code>{magic}</code>\n"
+            "ពិនិត្យឈ្មោះក្នុង archive: <code>{archive}</code>\n"
+            "ទំហំ download ស្កេនអតិបរមា: <code>{max_bytes}</code> bytes\n"
+            "Extension ដែល block: <code>{blocked}</code>\n"
+            "Extension គ្រោះថ្នាក់: <code>{dangerous}</code>\n"
+            "Extension archive: <code>{archives}</code>\n"
+            "Trusted hash whitelist: <code>{hash_whitelist}</code>"
         ),
-        "scanname_usage": "របៀបប្រើ៖ <code>/scanname invoice.pdf.exe</code>",
-        "scanname_blocked": "🚫 <b>ត្រូវបាន Block៖</b> <code>{file}</code>\n🧪 <b>មូលហេតុ៖</b> {reason}",
-        "scanname_clean": "✅ <b>សុវត្ថិភាព (យោងតាមឈ្មោះហ្វាល)៖</b> <code>{file}</code>",
+        "scanname_usage": "ប្រើ: <code>/scanname invoice.pdf.exe</code>",
+        "scanname_blocked": "🚫 <b>Blocked:</b> <code>{file}</code>\n🧪 <b>មូលហេតុ:</b> {reason}",
+        "scanname_clean": "✅ <b>រកមិនឃើញគ្រោះថ្នាក់តាមឈ្មោះ:</b> <code>{file}</code>",
         "memory_status": (
-            "🧠 <b>ស្ថានភាព System និងអង្គចងចាំ</b>\n"
-            "ទិន្នន័យ (Database)៖ <code>{backend}</code>\n"
-            "Supabase៖ <code>{supabase}</code>\n"
-            "Redis៖ <code>{redis}</code>\n"
-            "ចំនួន User ដែលបានកត់ត្រា៖ <code>{users}</code>\n"
-            "ចំនួនគ្រុបដែលបានរក្សាទុក៖ <code>{groups}</code>\n"
-            "ករណីកំពុងរង់ចាំដោះស្រាយ៖ <code>{incidents}</code>\n"
-            "Sync ទៅ Supabase ចុងក្រោយ៖ <code>{supabase_last_save}</code>\n"
-            "Sync ទៅ Redis ចុងក្រោយ៖ <code>{redis_last_save}</code>"
+            "🧠 <b>Bot Memory</b>\n"
+            "Backend: <code>{backend}</code>\n"
+            "Supabase: <code>{supabase}</code>\n"
+            "Redis: <code>{redis}</code>\n"
+            "អ្នកប្រើប្រាស់ដែលបានចងចាំ: <code>{users}</code>\n"
+            "ក្រុមដែលបានរក្សាទុក: <code>{groups}</code>\n"
+            "ករណីកំពុងបើក: <code>{incidents}</code>\n"
+            "Supabase save ចុងក្រោយ: <code>{supabase_last_save}</code>\n"
+            "Redis save ចុងក្រោយ: <code>{redis_last_save}</code>"
         ),
-        "unknown_error": "អូស! មានបញ្ហាអ្វីមួយកើតឡើង។ សូមព្យាយាមម្តងទៀតបន្តិចក្រោយ។",
+        "unknown_error": "មានបញ្ហាមួយកើតឡើង។ សូមព្យាយាមម្តងទៀត។",
     },
 }
 
@@ -543,6 +553,8 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "settings_saved": "✅ Settings updated.",
         "group_linked": "✅ Group linked to your private dashboard.",
         "group_admin_only": "❌ Only group admins can open this dashboard.",
+        "group_no_access": "⚠️ <b>I cannot access this group right now.</b> I may have been removed or lost permissions. Add me back as admin with <b>Delete Messages</b>, then tap Refresh.",
+        "group_relinked": "✅ Group access restored. Permission cache refreshed.",
         "access_denied": "❌ <b>Access denied.</b> This command is available only to bot owners or verified group admins.",
         "settings_group_open_private": "🔒 Configuration is private-chat only. Open private chat to manage this group:",
         "config_private_only": "🔒 Configuration updates are only available in private chat. I will not show or edit settings inside the group.",
@@ -633,6 +645,8 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "settings_saved": "✅ បានកែ settings រួចរាល់។",
         "group_linked": "✅ បានភ្ជាប់ក្រុមទៅ private dashboard រួច។",
         "group_admin_only": "❌ មានតែ Admin ក្នុងក្រុមប៉ុណ្ណោះអាចបើក dashboard នេះបាន។",
+        "group_no_access": "⚠️ <b>ខ្ញុំមិនអាចចូលដំណើរការក្រុមនេះបានទេ។</b> ខ្ញុំអាចត្រូវបានដកចេញ ឬបាត់សិទ្ធិ។ សូមបន្ថែមខ្ញុំជាអ្នកគ្រប់គ្រងវិញ ហើយបើក <b>Delete Messages</b> បន្ទាប់មកចុច Refresh។",
+        "group_relinked": "✅ បានស្ដារការចូលដំណើរការក្រុមវិញហើយ។ Permission cache បាន refresh។",
         "access_denied": "❌ <b>មិនមានសិទ្ធិ។</b> Command នេះអនុញ្ញាតតែ Bot owner ឬ Admin ក្រុមដែលបាន verify ប៉ុណ្ណោះ។",
         "settings_group_open_private": "🔒 ការកំណត់អាចកែបានតែក្នុង private chat ប៉ុណ្ណោះ។ សូមបើក private chat ដើម្បីគ្រប់គ្រងក្រុមនេះ:",
         "config_private_only": "🔒 ការកែ configuration អនុញ្ញាតតែក្នុង private chat ប៉ុណ្ណោះ។ ខ្ញុំនឹងមិនបង្ហាញ ឬកែ settings នៅក្នុង group ទេ។",
@@ -1098,6 +1112,7 @@ PERSISTED_BOT_DATA_KEYS = (
     "chat_meta_cache",
     "admin_ids_cache",
     "bot_member_cache",
+    "inaccessible_chats",
 )
 
 
@@ -1310,6 +1325,30 @@ def sanitize_bot_data_in_place(bot_data: dict[str, Any]) -> None:
                     continue
                 if raw_key != normalized_key:
                     bucket[normalized_key] = bucket.pop(raw_key)
+
+    inaccessible = bot_data.get("inaccessible_chats", {})
+    if not isinstance(inaccessible, dict):
+        bot_data["inaccessible_chats"] = {}
+    else:
+        for raw_key in list(inaccessible.keys()):
+            try:
+                normalized_key = str(int(raw_key))
+            except (TypeError, ValueError):
+                inaccessible.pop(raw_key, None)
+                continue
+            record = inaccessible.get(raw_key)
+            if not isinstance(record, dict):
+                inaccessible.pop(raw_key, None)
+                continue
+            try:
+                suppress_until_ms = int(record.get("suppress_until_ms", 0) or 0)
+            except (TypeError, ValueError):
+                suppress_until_ms = 0
+            if suppress_until_ms <= now_ms():
+                inaccessible.pop(raw_key, None)
+                continue
+            if raw_key != normalized_key:
+                inaccessible[normalized_key] = inaccessible.pop(raw_key)
 
     ensure_runtime_config(bot_data)
 
@@ -2501,6 +2540,87 @@ async def update_admin_member_cache(
     return updated_ids.copy()
 
 
+
+
+def _telegram_error_text(exc: BaseException) -> str:
+    return str(exc or "").casefold()
+
+
+def _is_lost_chat_access_error(exc: BaseException) -> bool:
+    """Return True for Telegram errors that mean this bot cannot access chat anymore."""
+    text = _telegram_error_text(exc)
+    return isinstance(exc, Forbidden) and any(
+        needle in text
+        for needle in (
+            "bot was kicked",
+            "bot is not a member",
+            "forbidden: bot was kicked",
+            "forbidden: bot is not a member",
+            "chat not found",
+        )
+    )
+
+
+def _inaccessible_chats_bucket(bot_data: dict[str, Any]) -> dict[str, Any]:
+    return _bot_data_cache_bucket(bot_data, "inaccessible_chats")
+
+
+def get_chat_inaccessible_record(bot_data: dict[str, Any], chat_id: int) -> dict[str, Any] | None:
+    bucket = bot_data.get("inaccessible_chats")
+    if not isinstance(bucket, dict):
+        return None
+    record = bucket.get(str(int(chat_id))) or bucket.get(int(chat_id))
+    return record if isinstance(record, dict) else None
+
+
+def is_chat_api_suppressed(bot_data: dict[str, Any], chat_id: int) -> bool:
+    record = get_chat_inaccessible_record(bot_data, chat_id)
+    if not record:
+        return False
+    try:
+        until_ms = int(record.get("suppress_until_ms", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    return until_ms > now_ms()
+
+
+async def mark_chat_inaccessible(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    *,
+    reason: str,
+    purge: bool = True,
+) -> None:
+    """Remember a removed/inaccessible chat and optionally wipe linked group state.
+
+    This stops repeated get_chat_member/get_chat_administrators calls after the
+    bot is kicked.  my_chat_member_update clears this marker as soon as Telegram
+    reports that the bot was added back.
+    """
+    chat_id = int(chat_id)
+    chat_key = str(chat_id)
+    async with BOT_DATA_LOCK:
+        bucket = _inaccessible_chats_bucket(context.bot_data)
+        bucket[chat_key] = {
+            "reason": str(reason or "lost_access"),
+            "marked_at_ms": now_ms(),
+            "suppress_until_ms": now_ms() + INACCESSIBLE_CHAT_API_SUPPRESS_SECONDS * 1000,
+        }
+        await persist_context_memory(context, reason="chat_inaccessible_marked", force=True, caller_holds_lock=True)
+    if purge:
+        await purge_group_state(context, chat_id, reason=reason)
+
+
+async def clear_chat_inaccessible(context: ContextTypes.DEFAULT_TYPE, chat_id: int, *, persist: bool = True) -> None:
+    chat_id = int(chat_id)
+    async with BOT_DATA_LOCK:
+        bucket = context.bot_data.get("inaccessible_chats")
+        if isinstance(bucket, dict):
+            bucket.pop(str(chat_id), None)
+            bucket.pop(chat_id, None)
+        if persist:
+            await persist_context_memory(context, reason="chat_inaccessible_cleared", force=True, caller_holds_lock=True)
+
 async def get_chat_admin_ids_cached(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
@@ -2538,6 +2658,9 @@ async def get_chat_admin_ids_cached(
     if not allow_api:
         return await get_chat_admin_ids_from_state(context.bot_data, chat_id)
 
+    if is_chat_api_suppressed(context.bot_data, chat_id):
+        return await get_chat_admin_ids_from_state(context.bot_data, chat_id)
+
     ids: list[int] | None = None
     for attempt in (1, 2):
         try:
@@ -2549,8 +2672,12 @@ async def get_chat_admin_ids_cached(
                 continue
             logger.exception("Admin fetch hit RetryAfter chat_id=%s", chat_id, exc_info=True)
             return await get_chat_admin_ids_from_state(context.bot_data, chat_id)
-        except (TimedOut, BadRequest, Forbidden, TelegramError):
-            logger.exception("Could not fetch admins for chat_id=%s", chat_id, exc_info=True)
+        except (TimedOut, BadRequest, Forbidden, TelegramError) as exc:
+            if _is_lost_chat_access_error(exc):
+                logger.info("Admin fetch skipped; bot lost access to chat_id=%s: %s", chat_id, exc)
+                await mark_chat_inaccessible(context, chat_id, reason="admin_fetch_lost_access", purge=True)
+            else:
+                logger.exception("Could not fetch admins for chat_id=%s", chat_id, exc_info=True)
             return await get_chat_admin_ids_from_state(context.bot_data, chat_id)
         except Exception:
             logger.exception("Unexpected admin fetch failure chat_id=%s", chat_id, exc_info=True)
@@ -2622,6 +2749,10 @@ async def get_bot_member_cached(
         cached_perms = get_bot_member_from_state(context.bot_data, chat_id)
         return cached_perms or BotPerms(status="unknown", can_delete_messages=False, can_restrict_members=False)
 
+    if is_chat_api_suppressed(context.bot_data, chat_id):
+        cached_perms = get_bot_member_from_state(context.bot_data, chat_id)
+        return cached_perms or BotPerms(status="left", can_delete_messages=False, can_restrict_members=False)
+
     perms: BotPerms | None = None
     for attempt in (1, 2):
         try:
@@ -2639,7 +2770,11 @@ async def get_bot_member_cached(
             logger.exception("Bot member refresh hit RetryAfter chat_id=%s", chat_id, exc_info=True)
             cached_perms = get_bot_member_from_state(context.bot_data, chat_id)
             return cached_perms or BotPerms(status="unknown", can_delete_messages=False, can_restrict_members=False)
-        except (TimedOut, BadRequest, Forbidden, TelegramError):
+        except (TimedOut, BadRequest, Forbidden, TelegramError) as exc:
+            if _is_lost_chat_access_error(exc):
+                logger.info("Bot member refresh skipped; bot lost access to chat_id=%s: %s", chat_id, exc)
+                await mark_chat_inaccessible(context, chat_id, reason="bot_member_lost_access", purge=True)
+                return BotPerms(status="left", can_delete_messages=False, can_restrict_members=False)
             logger.exception("Could not refresh bot member status chat_id=%s", chat_id, exc_info=True)
             cached_perms = get_bot_member_from_state(context.bot_data, chat_id)
             return cached_perms or BotPerms(status="unknown", can_delete_messages=False, can_restrict_members=False)
@@ -2671,7 +2806,10 @@ async def refresh_bot_member_status_silent(context: ContextTypes.DEFAULT_TYPE, c
     """Self-heal cached bot permissions without blocking UI rendering."""
     try:
         await get_bot_member_cached(context, int(chat_id), allow_api=True)
-    except (TimedOut, BadRequest, Forbidden, TelegramError):
+    except (TimedOut, BadRequest, Forbidden, TelegramError) as exc:
+        if _is_lost_chat_access_error(exc):
+            logger.info("Silent bot permission refresh skipped; chat inaccessible chat_id=%s: %s", chat_id, exc)
+            return
         logger.exception("Silent bot permission refresh failed chat_id=%s", chat_id, exc_info=True)
     except Exception:
         logger.exception("Unexpected silent bot permission refresh failure chat_id=%s", chat_id, exc_info=True)
@@ -3126,6 +3264,9 @@ async def is_user_admin_in_group(
     if not allow_api:
         return user_id in set(ids)
 
+    if is_chat_api_suppressed(context.bot_data, chat_id):
+        return user_id in set(ids)
+
     member = None
     for attempt in (1, 2):
         try:
@@ -3136,8 +3277,12 @@ async def is_user_admin_in_group(
                 continue
             logger.exception("Admin live membership check hit RetryAfter chat_id=%s user_id=%s", chat_id, user_id, exc_info=True)
             return user_id in set(ids)
-        except (TimedOut, BadRequest, Forbidden, TelegramError):
-            logger.exception("Admin live membership check failed chat_id=%s user_id=%s", chat_id, user_id, exc_info=True)
+        except (TimedOut, BadRequest, Forbidden, TelegramError) as exc:
+            if _is_lost_chat_access_error(exc):
+                logger.info("Admin live membership check skipped; bot lost access to chat_id=%s user_id=%s: %s", chat_id, user_id, exc)
+                await mark_chat_inaccessible(context, chat_id, reason="admin_membership_lost_access", purge=True)
+            else:
+                logger.exception("Admin live membership check failed chat_id=%s user_id=%s", chat_id, user_id, exc_info=True)
             return user_id in set(ids)
         except Exception:
             logger.exception("Unexpected admin live membership check failure chat_id=%s user_id=%s", chat_id, user_id, exc_info=True)
@@ -3378,14 +3523,19 @@ async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 def group_settings_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
+    settings = get_group_settings(bot_data, chat_id)
+    protection_badge = "🟢" if settings.get("protection_enabled", True) else "🔴"
+    silent_badge = "🟢" if settings.get("silent_mode", False) else "⚪"
+    strictness = _strictness_label(bot_data, user_id, str(settings.get("strictness", "standard")))
+    auto_mode = _auto_action_label(settings.get("auto_action_mode"))
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_protection_status"), callback_data=f"gap:{chat_id}:protection"), InlineKeyboardButton(tr(bot_data, user_id, "btn_scanner_settings"), callback_data=f"gap:{chat_id}:scanner")],
+            [InlineKeyboardButton(f"{protection_badge} {tr(bot_data, user_id, 'btn_protection_status')}", callback_data=f"gap:{chat_id}:protection"), InlineKeyboardButton(tr(bot_data, user_id, "btn_scanner_settings"), callback_data=f"gap:{chat_id}:scanner")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_incident_logs"), callback_data=f"gap:{chat_id}:incidents"), InlineKeyboardButton(tr(bot_data, user_id, "btn_member_risk"), callback_data=f"gap:{chat_id}:risk")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_admin_alert_status"), callback_data=f"gap:{chat_id}:admins"), InlineKeyboardButton(tr(bot_data, user_id, "btn_group_health"), callback_data=f"gap:{chat_id}:health")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_blocked_formats"), callback_data=f"gfmt:{chat_id}:menu"), InlineKeyboardButton(tr(bot_data, user_id, "btn_allowed_formats"), callback_data=f"gallow:{chat_id}:menu")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_silent_mode"), callback_data=f"gset:{chat_id}:silent"), InlineKeyboardButton(tr(bot_data, user_id, "btn_strictness_level"), callback_data=f"gset:{chat_id}:strictness")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_auto_actions"), callback_data=f"gap:{chat_id}:auto")],
+            [InlineKeyboardButton(f"{silent_badge} {tr(bot_data, user_id, 'btn_silent_mode')}", callback_data=f"gset:{chat_id}:silent"), InlineKeyboardButton(f"🔥 {strictness}", callback_data=f"gset:{chat_id}:strictness")],
+            [InlineKeyboardButton(f"🤖 Auto: {auto_mode}", callback_data=f"gap:{chat_id}:auto")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_trusted_hashes"), callback_data=f"ghash:{chat_id}:menu")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_refresh"), callback_data=f"gap:{chat_id}:refresh")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data="nav:groups")],
@@ -3430,6 +3580,7 @@ async def render_group_settings_panel(
 ) -> None:
     async with BOT_DATA_LOCK:
         title = get_chat_title_from_state(context.bot_data, chat_id)
+        no_access = is_chat_api_suppressed(context.bot_data, chat_id)
         settings = dict(get_group_settings(context.bot_data, chat_id))
         allowed = format_extension_list(settings.get("allowed_extensions", []))
         custom_blocked = format_extension_list(settings.get("custom_blocked_extensions", []))
@@ -3448,9 +3599,12 @@ async def render_group_settings_panel(
             auto_action=h(_auto_action_label(settings.get("auto_action_mode"))),
         )
         keyboard = group_settings_keyboard(context.bot_data, user_id, chat_id)
+    if no_access and not notice:
+        notice = tr(context.bot_data, user_id, "group_no_access")
     if notice:
         text = f"{notice}\n\n{text}"
     await send_or_edit_panel(update, text, keyboard)
+
 
 
 async def render_format_manager_panel(
@@ -3567,9 +3721,11 @@ def _group_back_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -
 def _protection_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
     settings = get_group_settings(bot_data, chat_id)
     protection_key = "btn_turn_off" if settings.get("protection_enabled", True) else "btn_turn_on"
+    silent_label = "Silent: ON" if settings.get("silent_mode", False) else "Silent: OFF"
+    strict_label = f"Strict: {_strictness_label(bot_data, user_id, str(settings.get('strictness', 'standard')))}"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(tr(bot_data, user_id, protection_key), callback_data=f"gset:{chat_id}:protection")],
-        [InlineKeyboardButton(tr(bot_data, user_id, "btn_strictness_level"), callback_data=f"gset:{chat_id}:strictness"), InlineKeyboardButton(tr(bot_data, user_id, "btn_silent_mode"), callback_data=f"gset:{chat_id}:silent")],
+        [InlineKeyboardButton(strict_label, callback_data=f"gset:{chat_id}:strictness"), InlineKeyboardButton(silent_label, callback_data=f"gset:{chat_id}:silent")],
         [InlineKeyboardButton(tr(bot_data, user_id, "btn_auto_actions"), callback_data=f"gap:{chat_id}:auto")],
         [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data=f"grp:{chat_id}")],
         [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
@@ -3689,7 +3845,18 @@ async def render_group_health_panel(update: Update, context: ContextTypes.DEFAUL
 
 
 def _auto_actions_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[InlineKeyboardButton(tr(bot_data, user_id, "btn_auto_off"), callback_data=f"gauto:{chat_id}:off")], [InlineKeyboardButton(tr(bot_data, user_id, "btn_auto_warn"), callback_data=f"gauto:{chat_id}:warn")], [InlineKeyboardButton(tr(bot_data, user_id, "btn_auto_smart"), callback_data=f"gauto:{chat_id}:smart")], [InlineKeyboardButton(tr(bot_data, user_id, "btn_auto_ban"), callback_data=f"gauto:{chat_id}:ban")], [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data=f"grp:{chat_id}")], [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")]])
+    current = _auto_action_label(get_group_settings(bot_data, chat_id).get("auto_action_mode"))
+    def row(mode: str, key: str) -> list[InlineKeyboardButton]:
+        prefix = "✅ " if current == mode else ""
+        return [InlineKeyboardButton(prefix + tr(bot_data, user_id, key), callback_data=f"gauto:{chat_id}:{mode}")]
+    return InlineKeyboardMarkup([
+        row("off", "btn_auto_off"),
+        row("warn", "btn_auto_warn"),
+        row("smart", "btn_auto_smart"),
+        row("ban", "btn_auto_ban"),
+        [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data=f"grp:{chat_id}")],
+        [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
+    ])
 
 
 async def render_auto_actions_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int, *, notice: str = "") -> None:
@@ -5254,8 +5421,10 @@ async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TY
     }
     if new_status.casefold() in {status.casefold() for status in removed_statuses}:
         logger.info("Bot lost access to chat_id=%s title=%r; hard-wiping state", chat.id, getattr(chat, "title", None))
-        await purge_group_state(context, chat.id, reason="bot_lost_group_access")
+        await mark_chat_inaccessible(context, chat.id, reason="bot_lost_group_access", purge=True)
         return
+
+    await clear_chat_inaccessible(context, chat.id, persist=False)
 
     adder = result.from_user
     if not adder or adder.is_bot:
