@@ -752,6 +752,7 @@ BUTTON_ONLY_TEXTS: dict[str, dict[str, str]] = {
             "Users: <code>{users}</code>\n"
             "Groups: <code>{groups}</code>\n"
             "Open incidents: <code>{incidents}</code>\n"
+            "Feedback: <code>{feedback}</code>\n"
             "Admin cache: <code>{admin_cache}</code>\n"
             "Bot permission cache: <code>{bot_perm_cache}</code>\n"
             "Chat metadata cache: <code>{chat_meta}</code>\n"
@@ -825,6 +826,7 @@ BUTTON_ONLY_TEXTS: dict[str, dict[str, str]] = {
             "Users: <code>{users}</code>\n"
             "Groups: <code>{groups}</code>\n"
             "Open incidents: <code>{incidents}</code>\n"
+            "Feedback: <code>{feedback}</code>\n"
             "Admin cache: <code>{admin_cache}</code>\n"
             "Bot permission cache: <code>{bot_perm_cache}</code>\n"
             "Chat metadata cache: <code>{chat_meta}</code>\n"
@@ -978,6 +980,269 @@ GROUP_ADMIN_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
     },
 }
 for _lang, _items in GROUP_ADMIN_DASHBOARD_TEXTS.items():
+    TEXTS.setdefault(_lang, {}).update(_items)
+
+# ─────────────────────────────────────────────────────────────
+# INTERFACE UPGRADE PACK
+# Clearer, button-first UI copy for private dashboard + group admin panel.
+# This overrides older labels without changing moderation behavior.
+# ─────────────────────────────────────────────────────────────
+INTERFACE_UPGRADE_TEXTS: dict[str, dict[str, str]] = {
+    "en": {
+        "home_title": (
+            "🛡️ <b>EXE Remover Bot Dashboard</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Status: 🟢 <b>Online</b>\n"
+            "Mode: <b>Button-first control panel</b>\n\n"
+            "Manage group protection, scanner rules, trusted hashes, admin alerts, and incidents from one clean dashboard."
+        ),
+        "groups_title": (
+            "👥 <b>My Protected Groups</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Tap a group to open its control center.\n"
+            "🟢 Ready · 🟡 Needs attention · 🔴 No access"
+        ),
+        "groups_empty": (
+            "👥 <b>No protected groups yet</b>\n\n"
+            "Add me to a group, make me admin, and enable <b>Delete Messages</b>.\n"
+            "Then open this dashboard again to manage protection."
+        ),
+        "group_card": (
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "💬 <b>{group}</b>\n"
+            "{permission}\n"
+            "🛡 Protection: <b>{protection}</b> · 🔥 <code>{strictness}</code>\n"
+            "🔇 Silent: <code>{silent}</code>"
+        ),
+        "group_admin_title": (
+            "⚙️ <b>Group Control Center</b>\n"
+            "💬 <b>{group}</b>\n"
+            "<code>{chat_id}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🛡 Protection: <b>{protection}</b>\n"
+            "🔥 Strictness: <code>{strictness}</code>\n"
+            "🔇 Silent mode: <code>{silent}</code>\n"
+            "🤖 Auto action: <code>{auto_action}</code>\n"
+            "🔐 Trusted hashes: <code>{trusted_hashes}</code>\n"
+            "🧩 Blocked formats: <code>{custom_blocked}</code>\n"
+            "✅ Allowed formats: <code>{allowed}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Choose a tool below to update this group."
+        ),
+        "protection_status_title": (
+            "🛡 <b>Protection Overview</b>\n"
+            "💬 <b>{group}</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Protection: <b>{protection}</b>\n"
+            "Bot permission: <code>{bot_permission}</code>\n"
+            "Strictness: <code>{strictness}</code>\n"
+            "Silent mode: <code>{silent}</code>\n"
+            "Auto action: <code>{auto_action}</code>\n\n"
+            "Tip: use <b>Standard</b> for safer daily use, <b>High</b> for strict groups."
+        ),
+        "scanner_panel_title": "🧪 <b>Scanner Center</b>\n💬 <b>{group}</b>\n━━━━━━━━━━━━━━━━━━━━\n{scanner}",
+        "health_title": (
+            "🩺 <b>Group Health Check</b>\n"
+            "💬 <b>{group}</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Bot is admin: {bot_admin}\n"
+            "Can delete messages: {can_delete}\n"
+            "Can restrict members: {can_restrict}\n"
+            "Protection enabled: {protection}\n"
+            "Scanner enabled: {scanner}\n"
+            "Admin alerts ready: <code>{ready}</code>/<code>{total}</code>\n\n"
+            "Best setup: Admin + Delete Messages + Restrict Members."
+        ),
+        "incidents_title": "🚨 <b>Incident Center</b>\n💬 <b>{group}</b>\nTotal: <code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
+        "member_risk_title": "👥 <b>Member Risk Center</b>\n💬 <b>{group}</b>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
+        "admin_alert_title": "👮 <b>Admin Alert Readiness</b>\n💬 <b>{group}</b>\nReady: <code>{ready}</code>/<code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}\n\n<i>Admins must open the bot privately once to receive alerts.</i>",
+        "auto_title": (
+            "🤖 <b>Auto Action Rules</b>\n"
+            "💬 <b>{group}</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Current mode: <code>{mode}</code>\n"
+            "Warn threshold: <code>{warn_threshold}</code>\n"
+            "Mute threshold: <code>{mute_threshold}</code>\n"
+            "Ban threshold: <code>{ban_threshold}</code>\n"
+            "Mute length: <code>{mute_minutes} minutes</code>\n\n"
+            "Recommended: <b>Smart</b> = warn first, mute repeat offenders, ban heavy repeat offenders."
+        ),
+        "trusted_hash_title": (
+            "🔐 <b>Trusted File Hash Whitelist</b>\n"
+            "💬 <b>{group}</b> <code>{chat_id}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Trusted hashes: <code>{count}</code>/<code>{limit}</code>\n\n"
+            "{items}\n\n"
+            "Approve only exact safe files. A renamed copy with different content will still be blocked."
+        ),
+    },
+    "km": {
+        "home_title": (
+            "🛡️ <b>EXE Remover Bot Dashboard</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ស្ថានភាព: 🟢 <b>Online</b>\n"
+            "Mode: <b>Button-first control panel</b>\n\n"
+            "គ្រប់គ្រង group protection, scanner rules, trusted hashes, admin alerts និង incidents ពី dashboard មួយ។"
+        ),
+        "groups_title": (
+            "👥 <b>ក្រុមដែលបានការពារ</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ចុចលើក្រុម ដើម្បីបើក control center។\n"
+            "🟢 រួចរាល់ · 🟡 ត្រូវពិនិត្យ · 🔴 មិនអាចចូលបាន"
+        ),
+        "groups_empty": (
+            "👥 <b>មិនទាន់មានក្រុមទេ</b>\n\n"
+            "បន្ថែមខ្ញុំទៅក្រុម ធ្វើឱ្យខ្ញុំជា Admin ហើយបើក <b>Delete Messages</b>។\n"
+            "បន្ទាប់មកបើក dashboard នេះវិញ ដើម្បីគ្រប់គ្រង protection។"
+        ),
+        "group_card": (
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "💬 <b>{group}</b>\n"
+            "{permission}\n"
+            "🛡 Protection: <b>{protection}</b> · 🔥 <code>{strictness}</code>\n"
+            "🔇 Silent: <code>{silent}</code>"
+        ),
+        "group_admin_title": (
+            "⚙️ <b>Group Control Center</b>\n"
+            "💬 <b>{group}</b>\n"
+            "<code>{chat_id}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🛡 Protection: <b>{protection}</b>\n"
+            "🔥 Strictness: <code>{strictness}</code>\n"
+            "🔇 Silent mode: <code>{silent}</code>\n"
+            "🤖 Auto action: <code>{auto_action}</code>\n"
+            "🔐 Trusted hashes: <code>{trusted_hashes}</code>\n"
+            "🧩 Blocked formats: <code>{custom_blocked}</code>\n"
+            "✅ Allowed formats: <code>{allowed}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ជ្រើស tool ខាងក្រោម ដើម្បីកែ settings ក្រុមនេះ។"
+        ),
+        "protection_status_title": (
+            "🛡 <b>Protection Overview</b>\n"
+            "💬 <b>{group}</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Protection: <b>{protection}</b>\n"
+            "Bot permission: <code>{bot_permission}</code>\n"
+            "Strictness: <code>{strictness}</code>\n"
+            "Silent mode: <code>{silent}</code>\n"
+            "Auto action: <code>{auto_action}</code>\n\n"
+            "ណែនាំ: ប្រើ <b>Standard</b> សម្រាប់រាល់ថ្ងៃ និង <b>High</b> សម្រាប់ក្រុម strict។"
+        ),
+        "scanner_panel_title": "🧪 <b>Scanner Center</b>\n💬 <b>{group}</b>\n━━━━━━━━━━━━━━━━━━━━\n{scanner}",
+        "health_title": (
+            "🩺 <b>Group Health Check</b>\n"
+            "💬 <b>{group}</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Bot is admin: {bot_admin}\n"
+            "Can delete messages: {can_delete}\n"
+            "Can restrict members: {can_restrict}\n"
+            "Protection enabled: {protection}\n"
+            "Scanner enabled: {scanner}\n"
+            "Admin alerts ready: <code>{ready}</code>/<code>{total}</code>\n\n"
+            "Setup ល្អបំផុត: Admin + Delete Messages + Restrict Members។"
+        ),
+        "incidents_title": "🚨 <b>Incident Center</b>\n💬 <b>{group}</b>\nTotal: <code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
+        "member_risk_title": "👥 <b>Member Risk Center</b>\n💬 <b>{group}</b>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
+        "admin_alert_title": "👮 <b>Admin Alert Readiness</b>\n💬 <b>{group}</b>\nReady: <code>{ready}</code>/<code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}\n\n<i>Admin ត្រូវបើក bot ក្នុង private ម្តង ដើម្បីទទួល alert។</i>",
+        "auto_title": (
+            "🤖 <b>Auto Action Rules</b>\n"
+            "💬 <b>{group}</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Current mode: <code>{mode}</code>\n"
+            "Warn threshold: <code>{warn_threshold}</code>\n"
+            "Mute threshold: <code>{mute_threshold}</code>\n"
+            "Ban threshold: <code>{ban_threshold}</code>\n"
+            "Mute length: <code>{mute_minutes} minutes</code>\n\n"
+            "ណែនាំ: <b>Smart</b> = warn ជាមុន, mute repeat offenders, ban heavy repeat offenders។"
+        ),
+        "trusted_hash_title": (
+            "🔐 <b>Trusted File Hash Whitelist</b>\n"
+            "💬 <b>{group}</b> <code>{chat_id}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Trusted hashes: <code>{count}</code>/<code>{limit}</code>\n\n"
+            "{items}\n\n"
+            "Approve តែ file ដែលសុវត្ថិភាពពិតប្រាកដ។ File ដែល content ផ្លាស់ប្តូរ នឹងនៅតែត្រូវ block។"
+        ),
+    },
+}
+for _lang, _items in INTERFACE_UPGRADE_TEXTS.items():
+    TEXTS.setdefault(_lang, {}).update(_items)
+
+INTERFACE_BUTTON_TEXTS: dict[str, dict[str, str]] = {
+    "en": {
+        "btn_open_groups": "👥 Open My Groups",
+        "btn_refresh_dashboard": "🔄 Refresh Dashboard",
+        "btn_refresh_groups": "🔄 Refresh Groups",
+        "btn_refresh_incidents": "🔄 Refresh Incidents",
+        "btn_refresh_developer": "🔄 Refresh Developer Dashboard",
+        "btn_feedback": "💬 Send Feedback",
+        "btn_dev_feedback": "💬 User Feedback",
+        "btn_refresh_feedback": "🔄 Refresh Feedback",
+        "feedback_prompt": (
+            "💬 <b>Send Feedback</b>\n\n"
+            "Tell me what feels confusing, slow, missing, or difficult. You can write in Khmer or English.\n\n"
+            "Example: <code>The group settings page is hard to understand.</code>\n\n"
+            "Send <code>/cancel</code> to cancel."
+        ),
+        "feedback_thanks": "✅ Thanks! Your feedback was saved and sent to the developer dashboard.",
+        "feedback_empty": "No feedback has been submitted yet.",
+        "feedback_cancelled": "✅ Feedback cancelled.",
+        "feedback_too_short": "❌ Please write a little more detail so the developer can understand the issue.",
+        "dev_feedback_title": "💬 <b>User Feedback</b>\nTotal: <code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
+        "btn_scanner_center": "🧪 Scanner Center",
+        "btn_health_check_short": "🩺 Health Check",
+        "btn_incidents_short": "🚨 Incidents",
+        "btn_risk_users": "👥 Risk Users",
+        "btn_admin_alerts_short": "👮 Admin Alerts",
+        "btn_blocked_formats_short": "🧩 Blocked Formats",
+        "btn_allowed_formats_short": "✅ Allowed Formats",
+        "btn_trusted_hashes_short": "🔐 Trusted Hashes",
+        "btn_group_notice_on": "🔔 Group Notice: ON",
+        "btn_silent_mode_on": "🔇 Silent Mode: ON",
+        "label_protection_on": "🟢 Protection: ON",
+        "label_protection_off": "🔴 Protection: OFF",
+        "label_access_ok": "🟢 Access OK",
+        "label_no_access": "🔴 No Access",
+        "label_auto": "🤖 Auto",
+    },
+    "km": {
+        "btn_open_groups": "👥 បើកក្រុមរបស់ខ្ញុំ",
+        "btn_refresh_dashboard": "🔄 Refresh Dashboard",
+        "btn_refresh_groups": "🔄 Refresh ក្រុម",
+        "btn_refresh_incidents": "🔄 Refresh Incidents",
+        "btn_refresh_developer": "🔄 Refresh Developer Dashboard",
+        "btn_feedback": "💬 ផ្ញើ Feedback",
+        "btn_dev_feedback": "💬 User Feedback",
+        "btn_refresh_feedback": "🔄 Refresh Feedback",
+        "feedback_prompt": (
+            "💬 <b>ផ្ញើ Feedback</b>\n\n"
+            "សូមប្រាប់ថាផ្នែកណាពិបាកប្រើ យឺត ខ្វះមុខងារ ឬច្រឡំ។ អាចសរសេរជាខ្មែរ ឬ English។\n\n"
+            "ឧទាហរណ៍: <code>ទំព័រ group settings មើលទៅច្រឡំ។</code>\n\n"
+            "ផ្ញើ <code>/cancel</code> ដើម្បីបោះបង់។"
+        ),
+        "feedback_thanks": "✅ អរគុណ! Feedback របស់អ្នកត្រូវបានរក្សាទុកក្នុង Developer Dashboard។",
+        "feedback_empty": "មិនទាន់មាន feedback ទេ។",
+        "feedback_cancelled": "✅ បានបោះបង់ feedback។",
+        "feedback_too_short": "❌ សូមសរសេរលម្អិតបន្តិច ដើម្បីឱ្យ developer យល់បញ្ហា។",
+        "dev_feedback_title": "💬 <b>User Feedback</b>\nសរុប: <code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
+        "btn_scanner_center": "🧪 Scanner Center",
+        "btn_health_check_short": "🩺 ពិនិត្យសុខភាព",
+        "btn_incidents_short": "🚨 Incidents",
+        "btn_risk_users": "👥 Risk Users",
+        "btn_admin_alerts_short": "👮 Admin Alerts",
+        "btn_blocked_formats_short": "🧩 Blocked Formats",
+        "btn_allowed_formats_short": "✅ Allowed Formats",
+        "btn_trusted_hashes_short": "🔐 Trusted Hashes",
+        "btn_group_notice_on": "🔔 Group Notice: ON",
+        "btn_silent_mode_on": "🔇 Silent Mode: ON",
+        "label_protection_on": "🟢 Protection: ON",
+        "label_protection_off": "🔴 Protection: OFF",
+        "label_access_ok": "🟢 Access OK",
+        "label_no_access": "🔴 No Access",
+        "label_auto": "🤖 Auto",
+    },
+}
+for _lang, _items in INTERFACE_BUTTON_TEXTS.items():
     TEXTS.setdefault(_lang, {}).update(_items)
 
 DEFAULT_GROUP_SETTINGS: dict[str, Any] = {
@@ -3202,6 +3467,53 @@ def _auto_action_label(mode: Any) -> str:
 def _yes_no(value: bool) -> str:
     return "✅" if value else "❌"
 
+
+def _ui_state_badge(enabled: bool, *, on: str = "ON", off: str = "OFF") -> str:
+    return f"🟢 {on}" if enabled else f"🔴 {off}"
+
+
+def _permission_badge(perms: BotPerms | None) -> str:
+    if perms is None or perms.status == "unknown":
+        return "🟡 Permission: unknown"
+    if has_delete_permission(perms):
+        return "🟢 Permission: Delete OK"
+    return "🔴 Permission: Need Delete Messages"
+
+
+def _group_button_status(bot_data: dict[str, Any], chat_id: int) -> str:
+    if is_chat_api_suppressed(bot_data, chat_id):
+        return "🔴"
+    perms = get_bot_member_from_state(bot_data, chat_id)
+    if perms is None or perms.status == "unknown":
+        return "🟡"
+    return "🟢" if has_delete_permission(perms) else "🟡"
+
+
+def _risk_badge(blocked: int) -> str:
+    if blocked >= 3:
+        return "🔴 High"
+    if blocked >= 2:
+        return "🟡 Medium"
+    return "🟢 Low"
+
+
+def _compact_extensions(values: Iterable[Any], *, fallback: str = "none") -> str:
+    text = format_extension_list(values)
+    return fallback if text == "none" else text
+
+
+def _safe_button_title(title: str, *, limit: int = 34) -> str:
+    cleaned = " ".join(str(title or "Unknown group").split())
+    return cleaned if len(cleaned) <= limit else cleaned[: max(0, limit - 1)] + "…"
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _safe_chat_id_from_payload(payload: str) -> int | None:
     """Extract a Telegram chat_id from callback/deep-link payloads.
 
@@ -3403,19 +3715,17 @@ async def dashboard_home_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: i
     _, username = await get_bot_identity(context.bot)
     add_url = f"https://t.me/{username}?startgroup=add" if username else "https://t.me/"
     rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_groups"), callback_data="nav:groups")],
-        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=add_url)],
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_open_groups"), callback_data="nav:groups")],
+        [
+            InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=add_url),
+            InlineKeyboardButton(tr(context.bot_data, user_id, "btn_help"), callback_data="nav:help"),
+        ],
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_feedback"), callback_data="nav:feedback")],
     ]
     if int(user_id) in BOT_OWNER_IDS:
         rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_developer"), callback_data="dev:home")])
-    rows.append(
-        [
-            InlineKeyboardButton(tr(context.bot_data, user_id, "btn_help"), callback_data="nav:help"),
-            InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh"), callback_data="nav:home"),
-        ]
-    )
+    rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh_dashboard"), callback_data="nav:home")])
     return InlineKeyboardMarkup(rows)
-
 
 def dashboard_back_home_keyboard(bot_data: dict[str, Any], user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -3455,6 +3765,45 @@ async def render_help_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await send_or_edit_panel(update, tr(context.bot_data, user_id, "help"), dashboard_back_home_keyboard(context.bot_data, user_id))
 
 
+async def render_feedback_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    async with BOT_DATA_LOCK:
+        state = get_user_state(context.bot_data, int(user_id))
+        state["pending_user_feedback"] = {"created_at_ms": now_ms()}
+        await persist_context_memory(context, reason="pending_user_feedback", force=True, caller_holds_lock=True)
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
+    ])
+    await send_or_edit_panel(update, tr(context.bot_data, user_id, "feedback_prompt"), keyboard)
+
+
+async def clear_pending_user_feedback(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    async with BOT_DATA_LOCK:
+        state = get_user_state(context.bot_data, int(user_id))
+        state.pop("pending_user_feedback", None)
+        await persist_context_memory(context, reason="clear_pending_user_feedback", force=True, caller_holds_lock=True)
+
+
+async def save_user_feedback(context: ContextTypes.DEFAULT_TYPE, user: Any, text: str) -> None:
+    clean_text = re.sub(r"\s+", " ", str(text or "")).strip()
+    async with BOT_DATA_LOCK:
+        state = get_user_state(context.bot_data, int(user.id))
+        state.pop("pending_user_feedback", None)
+        feedback = context.bot_data.setdefault("user_feedback", [])
+        if not isinstance(feedback, list):
+            feedback = []
+            context.bot_data["user_feedback"] = feedback
+        feedback.insert(0, {
+            "id": f"fb:{now_ms()}:{int(user.id)}",
+            "user_id": int(user.id),
+            "username": getattr(user, "username", None) or "",
+            "full_name": getattr(user, "full_name", None) or "Unknown",
+            "text": clean_text[:2000],
+            "created_at_ms": now_ms(),
+        })
+        del feedback[MAX_USER_FEEDBACK_ITEMS:]
+        await persist_context_memory(context, reason="user_feedback_saved", force=True, caller_holds_lock=True)
+
+
 async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
     async with BOT_DATA_LOCK:
         groups = get_groups(context.bot_data, user_id)
@@ -3473,9 +3822,11 @@ async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
         groups = authorized_groups
 
     if not groups:
+        home_kb = await dashboard_home_keyboard(context, user_id)
+        add_url = home_kb.inline_keyboard[1][0].url
         kb = InlineKeyboardMarkup(
             [
-                [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=(await dashboard_home_keyboard(context, user_id)).inline_keyboard[1][0].url)],
+                [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=add_url)],
                 [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
             ]
         )
@@ -3486,59 +3837,77 @@ async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
     lines = [tr(context.bot_data, user_id, "groups_title")]
     sem = asyncio.Semaphore(5)
 
-    async def describe_group(chat_id: int) -> tuple[int, str, str]:
+    async def describe_group(chat_id: int) -> tuple[int, str, str, str]:
         async with sem:
             async with BOT_DATA_LOCK:
                 title = get_chat_title_from_state(context.bot_data, chat_id)
                 perms = get_bot_member_from_state(context.bot_data, chat_id)
-                if perms is None or perms.status == "unknown":
-                    permission = tr(context.bot_data, user_id, "perm_unknown")
-                else:
-                    permission = tr(context.bot_data, user_id, "perm_ok" if has_delete_permission(perms) else "perm_no")
+                permission = _permission_badge(perms)
                 settings = dict(get_group_settings(context.bot_data, chat_id))
+                protection = _ui_state_badge(bool(settings.get("protection_enabled", True)))
+                if is_chat_api_suppressed(context.bot_data, chat_id):
+                    permission = "🔴 Permission: bot cannot access this group"
                 card = tr(
                     context.bot_data,
                     user_id,
                     "group_card",
                     group=h(title),
-                    permission=permission,
-                    protection=_on_off(context.bot_data, user_id, bool(settings.get("protection_enabled"))),
+                    permission=h(permission),
+                    protection=h(protection),
                     strictness=_strictness_label(context.bot_data, user_id, str(settings.get("strictness", "standard"))),
                     silent=_on_off(context.bot_data, user_id, bool(settings.get("silent_mode")), key_on="silent_on", key_off="silent_off"),
                 )
-            return chat_id, title, card
+                button_prefix = _group_button_status(context.bot_data, chat_id)
+            return chat_id, title, card, button_prefix
 
     described = await asyncio.gather(*(describe_group(chat_id) for chat_id in groups), return_exceptions=True)
     for item in described:
         if isinstance(item, Exception):
             logger.exception("Group dashboard render failed", exc_info=(type(item), item, item.__traceback__))
             continue
-        chat_id, title, card = item
+        chat_id, title, card, button_prefix = item
         lines.append(card)
-        rows.append([InlineKeyboardButton(f"⚙️ {title[:32]}", callback_data=f"grp:{chat_id}")])
+        rows.append([InlineKeyboardButton(f"{button_prefix} {_safe_button_title(title)}", callback_data=f"grp:{chat_id}")])
 
-    rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh"), callback_data="nav:groups")])
+    rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh_groups"), callback_data="nav:groups")])
     rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")])
     await send_or_edit_panel(update, "\n\n".join(lines), InlineKeyboardMarkup(rows))
 
-
 def group_settings_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
     settings = get_group_settings(bot_data, chat_id)
-    protection_badge = "🟢" if settings.get("protection_enabled", True) else "🔴"
-    silent_badge = "🟢" if settings.get("silent_mode", False) else "⚪"
-    strictness = _strictness_label(bot_data, user_id, str(settings.get("strictness", "standard")))
-    auto_mode = _auto_action_label(settings.get("auto_action_mode"))
+    protection_label = tr(bot_data, user_id, "label_protection_on" if settings.get("protection_enabled", True) else "label_protection_off")
+    silent_label = tr(bot_data, user_id, "btn_silent_mode_on" if settings.get("silent_mode", False) else "btn_group_notice_on")
+    strictness = _strictness_label(bot_data, user_id, str(settings.get("strictness", "standard"))).upper()
+    auto_mode = _auto_action_label(settings.get("auto_action_mode")).upper()
+    access_badge = tr(bot_data, user_id, "label_no_access" if is_chat_api_suppressed(bot_data, chat_id) else "label_access_ok")
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton(f"{protection_badge} {tr(bot_data, user_id, 'btn_protection_status')}", callback_data=f"gap:{chat_id}:protection"), InlineKeyboardButton(tr(bot_data, user_id, "btn_scanner_settings"), callback_data=f"gap:{chat_id}:scanner")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_incident_logs"), callback_data=f"gap:{chat_id}:incidents"), InlineKeyboardButton(tr(bot_data, user_id, "btn_member_risk"), callback_data=f"gap:{chat_id}:risk")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_admin_alert_status"), callback_data=f"gap:{chat_id}:admins"), InlineKeyboardButton(tr(bot_data, user_id, "btn_group_health"), callback_data=f"gap:{chat_id}:health")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_blocked_formats"), callback_data=f"gfmt:{chat_id}:menu"), InlineKeyboardButton(tr(bot_data, user_id, "btn_allowed_formats"), callback_data=f"gallow:{chat_id}:menu")],
-            [InlineKeyboardButton(f"{silent_badge} {tr(bot_data, user_id, 'btn_silent_mode')}", callback_data=f"gset:{chat_id}:silent"), InlineKeyboardButton(f"🔥 {strictness}", callback_data=f"gset:{chat_id}:strictness")],
-            [InlineKeyboardButton(f"🤖 Auto: {auto_mode}", callback_data=f"gap:{chat_id}:auto")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_trusted_hashes"), callback_data=f"ghash:{chat_id}:menu")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_refresh"), callback_data=f"gap:{chat_id}:refresh")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data="nav:groups")],
+            [InlineKeyboardButton(f"{protection_label} · {access_badge}", callback_data=f"gap:{chat_id}:protection")],
+            [
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_scanner_center"), callback_data=f"gap:{chat_id}:scanner"),
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_health_check_short"), callback_data=f"gap:{chat_id}:health"),
+            ],
+            [
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_incidents_short"), callback_data=f"gap:{chat_id}:incidents"),
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_risk_users"), callback_data=f"gap:{chat_id}:risk"),
+            ],
+            [
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_admin_alerts_short"), callback_data=f"gap:{chat_id}:admins"),
+                InlineKeyboardButton(f"{tr(bot_data, user_id, 'label_auto')}: {auto_mode}", callback_data=f"gap:{chat_id}:auto"),
+            ],
+            [
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_blocked_formats_short"), callback_data=f"gfmt:{chat_id}:menu"),
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_allowed_formats_short"), callback_data=f"gallow:{chat_id}:menu"),
+            ],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_trusted_hashes_short"), callback_data=f"ghash:{chat_id}:menu")],
+            [
+                InlineKeyboardButton(silent_label, callback_data=f"gset:{chat_id}:silent"),
+                InlineKeyboardButton(f"🔥 {strictness}", callback_data=f"gset:{chat_id}:strictness"),
+            ],
+            [
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data="nav:groups"),
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_refresh"), callback_data=f"gap:{chat_id}:refresh"),
+            ],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
         ]
     )
@@ -3720,24 +4089,26 @@ def _group_back_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -
 
 def _protection_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
     settings = get_group_settings(bot_data, chat_id)
-    protection_key = "btn_turn_off" if settings.get("protection_enabled", True) else "btn_turn_on"
-    silent_label = "Silent: ON" if settings.get("silent_mode", False) else "Silent: OFF"
-    strict_label = f"Strict: {_strictness_label(bot_data, user_id, str(settings.get('strictness', 'standard')))}"
+    protection_on = bool(settings.get("protection_enabled", True))
+    protection_key = "btn_turn_off" if protection_on else "btn_turn_on"
+    silent_on = bool(settings.get("silent_mode", False))
+    silent_label = tr(bot_data, user_id, "btn_silent_mode_on" if silent_on else "btn_group_notice_on")
+    strict_label = f"🔥 Strictness: {_strictness_label(bot_data, user_id, str(settings.get('strictness', 'standard'))).upper()}"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(tr(bot_data, user_id, protection_key), callback_data=f"gset:{chat_id}:protection")],
-        [InlineKeyboardButton(strict_label, callback_data=f"gset:{chat_id}:strictness"), InlineKeyboardButton(silent_label, callback_data=f"gset:{chat_id}:silent")],
+        [InlineKeyboardButton(f"🛡 {tr(bot_data, user_id, protection_key)}", callback_data=f"gset:{chat_id}:protection")],
+        [InlineKeyboardButton(strict_label, callback_data=f"gset:{chat_id}:strictness")],
+        [InlineKeyboardButton(silent_label, callback_data=f"gset:{chat_id}:silent")],
         [InlineKeyboardButton(tr(bot_data, user_id, "btn_auto_actions"), callback_data=f"gap:{chat_id}:auto")],
         [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data=f"grp:{chat_id}")],
         [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
     ])
-
 
 async def render_group_protection_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int, *, notice: str = "") -> None:
     async with BOT_DATA_LOCK:
         title = get_chat_title_from_state(context.bot_data, chat_id)
         settings = dict(get_group_settings(context.bot_data, chat_id))
         perms = get_bot_member_from_state(context.bot_data, chat_id)
-        bot_permission = "unknown" if perms is None else ("delete-ok" if has_delete_permission(perms) else "need-delete-permission")
+        bot_permission = _permission_badge(perms).replace("Permission: ", "")
         text = tr(context.bot_data, user_id, "protection_status_title", group=h(title), protection=_on_off(context.bot_data, user_id, bool(settings.get("protection_enabled"))), strictness=_strictness_label(context.bot_data, user_id, str(settings.get("strictness", "standard"))), silent=_on_off(context.bot_data, user_id, bool(settings.get("silent_mode")), key_on="silent_on", key_off="silent_off"), bot_permission=h(bot_permission), auto_action=h(_auto_action_label(settings.get("auto_action_mode"))))
         keyboard = _protection_keyboard(context.bot_data, user_id, chat_id)
     if notice:
@@ -3769,17 +4140,31 @@ async def render_group_incidents_panel(update: Update, context: ContextTypes.DEF
     lines = []
     for idx, (ikey, incident) in enumerate(items[:10], 1):
         created = _format_saved_ms(_incident_created_ms(ikey, incident))
-        handled = "✅" if incident.get("done") else "⏳"
+        handled = "✅ Handled" if incident.get("done") else "⏳ Pending"
         action = str(incident.get("action") or incident.get("auto_action") or "pending")
-        lines.append(f"{idx}. {handled} <code>{h(incident.get('file_name', 'unknown'))}</code>\n   👤 {h(incident.get('sender_name', incident.get('sender_id', 'unknown')))} <code>{h(incident.get('sender_id', ''))}</code>\n   🧪 {h(incident.get('scan_reason') or incident.get('reason') or 'blocked')}\n   ⚙️ action: <code>{h(action)}</code> · <code>{h(created)}</code>")
+        file_name = h(incident.get("file_name", "unknown"))
+        sender = h(incident.get("sender_name", incident.get("sender_id", "unknown")))
+        sender_id = h(incident.get("sender_id", ""))
+        reason = h(incident.get("scan_reason") or incident.get("reason") or "blocked")
+        lines.append(
+            f"<b>{idx}. {handled}</b> · <code>{h(action)}</code>\n"
+            f"📄 <code>{file_name}</code>\n"
+            f"👤 {sender} <code>{sender_id}</code>\n"
+            f"🧪 {reason}\n"
+            f"🕒 <code>{h(created)}</code>"
+        )
     if not lines:
         lines.append(tr(context.bot_data, user_id, "incidents_empty"))
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh"), callback_data=f"gap:{chat_id}:incidents")], [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_clear_handled"), callback_data=f"gap:{chat_id}:clear_incidents")], [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_back"), callback_data=f"grp:{chat_id}")], [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")]])
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh_incidents"), callback_data=f"gap:{chat_id}:incidents")],
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_clear_handled"), callback_data=f"gap:{chat_id}:clear_incidents")],
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_back"), callback_data=f"grp:{chat_id}")],
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
+    ])
     text = tr(context.bot_data, user_id, "incidents_title", group=h(title), total=len(items), items="\n\n".join(lines))
     if notice:
         text = f"{notice}\n\n{text}"
     await send_or_edit_panel(update, text, keyboard)
-
 
 async def render_group_risk_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> None:
     async with BOT_DATA_LOCK:
@@ -3795,21 +4180,26 @@ async def render_group_risk_panel(update: Update, context: ContextTypes.DEFAULT_
         entry = stats.setdefault(sender_id, {"blocked": 0, "warned": 0, "muted": 0, "banned": 0, "name": str(incident.get("sender_name") or sender_id)})
         entry["blocked"] += 1
         action = str(incident.get("action") or incident.get("auto_action") or "")
-        if action == "warn": entry["warned"] += 1
-        elif action == "mute": entry["muted"] += 1
-        elif action == "ban": entry["banned"] += 1
-    ranked = sorted(stats.items(), key=lambda item: (item[1]["blocked"], item[1]["warned"], item[1]["muted"], item[1]["banned"]), reverse=True)[:10]
+        if action == "warn":
+            entry["warned"] += 1
+        elif action == "mute":
+            entry["muted"] += 1
+        elif action == "ban":
+            entry["banned"] += 1
+    ranked = sorted(stats.items(), key=lambda item: (item[1]["blocked"], item[1]["banned"], item[1]["muted"], item[1]["warned"]), reverse=True)[:10]
     lines = []
     for idx, (target_id, data) in enumerate(ranked, 1):
         profile = known_users.get(str(target_id), {}) if isinstance(known_users.get(str(target_id), {}), dict) else {}
         name = str(profile.get("full_name") or data.get("name") or target_id)
-        blocked = int(data.get("blocked", 0))
-        risk = "High" if blocked >= 3 else ("Medium" if blocked >= 2 else "Low")
-        lines.append(f"{idx}. {user_link(target_id, name)} — Risk: <code>{risk}</code> · blocked: <code>{blocked}</code> · warns: <code>{data.get('warned', 0)}</code>")
+        blocked = _safe_int(data.get("blocked"), 0)
+        risk = _risk_badge(blocked)
+        lines.append(
+            f"<b>{idx}. {user_link(target_id, name)}</b>\n"
+            f"Risk: <code>{risk}</code> · Blocked: <code>{blocked}</code> · Warns: <code>{_safe_int(data.get('warned'), 0)}</code> · Mutes: <code>{_safe_int(data.get('muted'), 0)}</code> · Bans: <code>{_safe_int(data.get('banned'), 0)}</code>"
+        )
     if not lines:
         lines.append(tr(context.bot_data, user_id, "member_risk_empty"))
-    await send_or_edit_panel(update, tr(context.bot_data, user_id, "member_risk_title", group=h(title), items="\n".join(lines)), _group_back_keyboard(context.bot_data, user_id, chat_id))
-
+    await send_or_edit_panel(update, tr(context.bot_data, user_id, "member_risk_title", group=h(title), items="\n\n".join(lines)), _group_back_keyboard(context.bot_data, user_id, chat_id))
 
 async def render_group_admin_alert_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> None:
     admin_ids = await get_chat_admin_ids_cached(context, chat_id, allow_api=True)
@@ -3846,9 +4236,11 @@ async def render_group_health_panel(update: Update, context: ContextTypes.DEFAUL
 
 def _auto_actions_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
     current = _auto_action_label(get_group_settings(bot_data, chat_id).get("auto_action_mode"))
+
     def row(mode: str, key: str) -> list[InlineKeyboardButton]:
-        prefix = "✅ " if current == mode else ""
+        prefix = "✅ " if current == mode else "⚪ "
         return [InlineKeyboardButton(prefix + tr(bot_data, user_id, key), callback_data=f"gauto:{chat_id}:{mode}")]
+
     return InlineKeyboardMarkup([
         row("off", "btn_auto_off"),
         row("warn", "btn_auto_warn"),
@@ -3857,7 +4249,6 @@ def _auto_actions_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int)
         [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data=f"grp:{chat_id}")],
         [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
     ])
-
 
 async def render_auto_actions_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int, *, notice: str = "") -> None:
     async with BOT_DATA_LOCK:
@@ -3876,20 +4267,26 @@ async def render_auto_actions_panel(update: Update, context: ContextTypes.DEFAUL
 
 DEV_USERS_PAGE_SIZE = 8
 DEV_GROUPS_PAGE_SIZE = 10
+MAX_USER_FEEDBACK_ITEMS = _env_int("MAX_USER_FEEDBACK_ITEMS", 200, min_value=20, max_value=2000)
+
 
 
 def _developer_keyboard(bot_data: dict[str, Any], user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_users"), callback_data="dev:users:0")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_groups"), callback_data="dev:groups:0")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_memory"), callback_data="dev:memory")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_hash_config"), callback_data="dev:hash")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_refresh"), callback_data="dev:refresh")],
+            [
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_users"), callback_data="dev:users:0"),
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_groups"), callback_data="dev:groups:0"),
+            ],
+            [
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_memory"), callback_data="dev:memory"),
+                InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_hash_config"), callback_data="dev:hash"),
+            ],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_dev_feedback"), callback_data="dev:feedback")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_refresh_developer"), callback_data="dev:refresh")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
         ]
     )
-
 
 def _developer_back_keyboard(bot_data: dict[str, Any], user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -3981,6 +4378,48 @@ def _dev_group_items(bot_data: dict[str, Any]) -> list[tuple[int, str]]:
     return sorted((chat_id, get_chat_title_from_state(bot_data, chat_id)) for chat_id in chat_ids)
 
 
+def _feedback_items(bot_data: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_items = bot_data.get("user_feedback", [])
+    if not isinstance(raw_items, list):
+        return []
+    items = [dict(item) for item in raw_items if isinstance(item, dict)]
+    items.sort(key=lambda item: _safe_int(item.get("created_at_ms"), 0), reverse=True)
+    return items
+
+
+async def render_developer_feedback_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    async with BOT_DATA_LOCK:
+        items = _feedback_items(context.bot_data)
+        lines: list[str] = []
+        known_users = context.bot_data.get("known_users", {}) if isinstance(context.bot_data.get("known_users", {}), dict) else {}
+        for idx, item in enumerate(items[:15], 1):
+            try:
+                uid = int(item.get("user_id"))
+            except (TypeError, ValueError):
+                uid = 0
+            profile = known_users.get(str(uid), {}) if uid and isinstance(known_users.get(str(uid), {}), dict) else {}
+            name = str(item.get("full_name") or profile.get("full_name") or uid or "Unknown")
+            username = str(item.get("username") or profile.get("username") or "")
+            when = _format_saved_ms(item.get("created_at_ms"))
+            body = h(str(item.get("text") or "")[:600])
+            who = user_link(uid, name) if uid else h(name)
+            handle = f" @{h(username)}" if username else ""
+            lines.append(
+                f"<b>{idx}. {who}</b>{handle}\n"
+                f"🕒 <code>{h(when)}</code>\n"
+                f"💬 {body}"
+            )
+        if not lines:
+            lines.append(tr(context.bot_data, user_id, "feedback_empty"))
+        text = tr(context.bot_data, user_id, "dev_feedback_title", total=len(items), items="\n\n".join(lines))
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh_feedback"), callback_data="dev:feedback")],
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_back"), callback_data="dev:home")],
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
+        ])
+    await send_or_edit_panel(update, text, keyboard)
+
+
 async def render_developer_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
     async with BOT_DATA_LOCK:
         users = len(_dev_user_items(context.bot_data))
@@ -3996,6 +4435,7 @@ async def render_developer_dashboard(update: Update, context: ContextTypes.DEFAU
             users=users,
             groups=groups,
             incidents=incidents,
+            feedback=len(_feedback_items(context.bot_data)),
             admin_cache=admin_cache,
             bot_perm_cache=bot_perm_cache,
             chat_meta=chat_meta,
@@ -4231,21 +4671,31 @@ async def navigation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
     await query.answer()
-    if not await is_admin_or_owner(context, user_id, allow_api=False):
-        await safe_edit_query(query, tr(context.bot_data, user_id, "access_denied"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
-        return
     data = query.data or ""
     if data == "nav:home":
         await clear_pending_format_edit(context, user_id)
+        await clear_pending_user_feedback(context, user_id)
         await render_home(update, context, user_id)
-    elif data == "nav:groups":
+        return
+    if data == "nav:help":
         await clear_pending_format_edit(context, user_id)
-        await render_groups_panel(update, context, user_id)
-    elif data == "nav:help":
-        await clear_pending_format_edit(context, user_id)
+        await clear_pending_user_feedback(context, user_id)
         await render_help_panel(update, context, user_id)
+        return
+    if data == "nav:feedback":
+        await clear_pending_format_edit(context, user_id)
+        await render_feedback_prompt(update, context, user_id)
+        return
+    if not await is_admin_or_owner(context, user_id, allow_api=False):
+        await safe_edit_query(query, tr(context.bot_data, user_id, "access_denied"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
+    if data == "nav:groups":
+        await clear_pending_format_edit(context, user_id)
+        await clear_pending_user_feedback(context, user_id)
+        await render_groups_panel(update, context, user_id)
     else:
         await clear_pending_format_edit(context, user_id)
+        await clear_pending_user_feedback(context, user_id)
         await render_home(update, context, user_id)
 
 
@@ -4271,6 +4721,9 @@ async def developer_dashboard_callback(update: Update, context: ContextTypes.DEF
         return
     if action == "memory":
         await render_developer_memory_panel(update, context, user_id)
+        return
+    if action == "feedback":
+        await render_developer_feedback_panel(update, context, user_id)
         return
     if action == "hash":
         sub = parts[2] if len(parts) > 2 else "menu"
@@ -4671,8 +5124,22 @@ async def private_text_flow_handler(update: Update, context: ContextTypes.DEFAUL
     async with BOT_DATA_LOCK:
         user_state = context.bot_data.get("user_state", {})
         state = (user_state.get(user.id) or user_state.get(str(user.id)) or {}) if isinstance(user_state, dict) else {}
+        pending_feedback = isinstance(state, dict) and isinstance(state.get("pending_user_feedback"), dict)
         pending = dict(state.get("pending_format_edit")) if isinstance(state, dict) and isinstance(state.get("pending_format_edit"), dict) else None
     text = (message.text or "").strip()
+
+    if pending_feedback:
+        if text.casefold() in {"/cancel", "cancel", "បោះបង់"}:
+            await clear_pending_user_feedback(context, user.id)
+            await safe_reply(update, tr(context.bot_data, user.id, "feedback_cancelled"), reply_markup=await dashboard_home_keyboard(context, user.id))
+            return
+        if len(text) < 8:
+            await safe_reply(update, tr(context.bot_data, user.id, "feedback_too_short"))
+            return
+        await save_user_feedback(context, user, text)
+        await safe_reply(update, tr(context.bot_data, user.id, "feedback_thanks"), reply_markup=await dashboard_home_keyboard(context, user.id))
+        return
+
     if not isinstance(pending, dict):
         return
 
@@ -5877,8 +6344,8 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("memory", memory_command))
     app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CallbackQueryHandler(lang_callback, pattern=r"^lang_(en|km)$"))
-    app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups|help)$"))
-    app.add_handler(CallbackQueryHandler(developer_dashboard_callback, pattern=r"^dev:(home|refresh|memory|hash(?::(?:toggle|size(?::\d+)?|limit(?::\d+)?))?|users(?::\d+)?|user:-?\d+|groups(?::\d+)?)$"))
+    app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups|help|feedback)$"))
+    app.add_handler(CallbackQueryHandler(developer_dashboard_callback, pattern=r"^dev:(home|refresh|memory|feedback|hash(?::(?:toggle|size(?::\d+)?|limit(?::\d+)?))?|users(?::\d+)?|user:-?\d+|groups(?::\d+)?)$"))
     app.add_handler(CallbackQueryHandler(group_dashboard_callback, pattern=r"^grp:-?\d+$"))
     app.add_handler(CallbackQueryHandler(group_admin_panel_callback, pattern=r"^gap:-?\d+:(protection|scanner|incidents|risk|admins|allowed|health|auto|clear_incidents|refresh)$"))
     app.add_handler(CallbackQueryHandler(group_settings_callback, pattern=r"^gset:-?\d+:(protection|strictness|silent)$"))
