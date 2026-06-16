@@ -299,6 +299,7 @@ class FileScanResult:
 # ─────────────────────────────────────────────────────────────
 # TRANSLATIONS - HTML parse mode, not Markdown
 # ─────────────────────────────────────────────────────────────
+from typing import Any
 
 TEXTS: dict[str, dict[str, str]] = {
     "en": {
@@ -306,14 +307,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "lang_set": "✅ Got it! I’ll communicate with you in <b>English</b> from now on.",
         "welcome": (
             "👋 <b>Hey there! I’m the EXE Remover Bot.</b>\n\n"
-            "🛡️ I protect your groups by instantly deleting dangerous <code>.exe</code> files.\n"
+            "🛡️ I keep your groups safe by instantly deleting dangerous <code>.exe</code> files.\n"
             "📢 If someone sends a blocked file, I’ll alert the admins with quick options to <b>Ban</b>, <b>Warn</b>, or <b>Ignore</b>.\n\n"
             "➡️ Add me to your group and grant me <b>Delete Messages</b> permission to get started."
         ),
         "add_btn": "➕ Add Me to a Group",
         "check_btn": "🔄 Check My Permissions",
         "private_start": "Please open a private chat with me to choose your language and manage settings.",
-        "no_group": "⚠️ I haven’t detected your group yet. Add me to a group first, then click <b>Check My Permissions</b>.",
+        "no_group": "⚠️ I haven't detected your group yet. Add me to a group first, then click <b>Check My Permissions</b>.",
         "not_admin": (
             "❌ <b>I’m not an admin in your group yet.</b>\n\n"
             "Go to Group Settings → Administrators → Add Member → select me, and enable <b>Delete Messages</b>."
@@ -346,7 +347,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_warn": "⚠️ Warn User",
         "btn_ignore": "✅ Ignore",
         "action_ban_ok": "🔨 <b>Action taken:</b> {name} has been banned and removed from the group.",
-        "action_ban_fail": "❌ I couldn’t ban them. Please make sure I have the <b>Ban Users</b> permission.",
+        "action_ban_fail": "❌ I couldn’t ban the user. Please make sure I have the <b>Ban Users</b> permission.",
         "action_warn_ok": "⚠️ <b>Action taken:</b> I sent a formal warning to {name} in the group.",
         "action_warn_fail": "❌ I couldn’t send the warning message in the group.",
         "action_ignore_ok": "✅ <b>Action taken:</b> This incident has been ignored.",
@@ -392,7 +393,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "scanname_blocked": "🚫 <b>Blocked:</b> <code>{file}</code>\n🧪 <b>Reason:</b> {reason}",
         "scanname_clean": "✅ <b>No filename danger found:</b> <code>{file}</code>",
         "memory_status": (
-            "🧠 <b>Bot Memory</b>\n"
+            "🧠 <b>Bot Memory Status</b>\n"
             "Backend: <code>{backend}</code>\n"
             "Supabase: <code>{supabase}</code>\n"
             "Redis: <code>{redis}</code>\n"
@@ -406,28 +407,28 @@ TEXTS: dict[str, dict[str, str]] = {
     },
     "km": {
         "select_lang": "🌐 Please choose your preferred language / សូមជ្រើសរើសភាសារបស់អ្នក៖",
-        "lang_set": "✅ រួចរាល់! ខ្ញុំនឹងទាក់ទងជាមួយអ្នកជា <b>ភាសាខ្មែរ</b> ចាប់ពីពេលនេះតទៅ។",
+        "lang_set": "✅ យល់ព្រម! ខ្ញុំនឹងទាក់ទងជាមួយអ្នកជា <b>ភាសាខ្មែរ</b> ចាប់ពីពេលនេះតទៅ។",
         "welcome": (
-            "👋 <b>សួស្ដី! ខ្ញុំគឺជារ៉ូបូតលុបឯកសារ EXE (EXE Remover Bot)។</b>\n\n"
+            "👋 <b>សួស្ដី! ខ្ញុំគឺ EXE Remover Bot។</b>\n\n"
             "🛡️ ខ្ញុំជួយការពារក្រុមរបស់អ្នក ដោយលុបចោលឯកសារ <code>.exe</code> ដែលមានហានិភ័យភ្លាមៗ។\n"
-            "📢 ពេលមានអ្នកផ្ញើឯកសារប្រភេទនេះ ខ្ញុំនឹងផ្ញើសាររាយការណ៍ទៅ Admin ជាមួយជម្រើស <b>Ban (បិទគណនី)</b>, <b>Warn (ព្រមាន)</b>, ឬ <b>Ignore (មិនអើពើ)</b>។\n\n"
+            "📢 ពេលមានអ្នកផ្ញើឯកសារប្រភេទនេះ ខ្ញុំនឹងជូនដំណឹងទៅកាន់ Admin ជាមួយជម្រើសរហ័ស៖ <b>Ban (បិទគណនី)</b>, <b>Warn (ព្រមាន)</b>, ឬ <b>Ignore (រំលង)</b>។\n\n"
             "➡️ សូមបន្ថែមខ្ញុំចូលទៅក្នុងក្រុមរបស់អ្នក ហើយផ្តល់សិទ្ធិ <b>Delete Messages (លុបសារ)</b> ដើម្បីចាប់ផ្ដើម។"
         ),
         "add_btn": "➕ បន្ថែមខ្ញុំទៅក្នុងក្រុម",
-        "check_btn": "🔄 ពិនិត្យសិទ្ធិរបស់ខ្ញុំ",
+        "check_btn": "🔄 ពិនិត្យមើលសិទ្ធិរបស់ខ្ញុំ",
         "private_start": "សូមបើកសារឯកជន (Private Chat) ជាមួយខ្ញុំ ដើម្បីជ្រើសរើសភាសា និងរៀបចំការកំណត់ផ្សេងៗ។",
-        "no_group": "⚠️ ខ្ញុំមិនទាន់ឃើញក្រុមរបស់អ្នកនៅឡើយទេ។ សូមបន្ថែមខ្ញុំចូលក្រុមជាមុនសិន រួចចុច <b>ពិនិត្យសិទ្ធិរបស់ខ្ញុំ</b>។",
+        "no_group": "⚠️ ខ្ញុំមិនទាន់រកឃើញក្រុមរបស់អ្នកទេ។ សូមបន្ថែមខ្ញុំចូលក្រុមជាមុនសិន រួចចុច <b>ពិនិត្យមើលសិទ្ធិរបស់ខ្ញុំ</b>។",
         "not_admin": (
-            "❌ <b>ខ្ញុំមិនទាន់ក្លាយជា Admin នៅក្នុងក្រុមរបស់អ្នកទេ។</b>\n\n"
+            "❌ <b>ខ្ញុំមិនទាន់មានសិទ្ធិជា Admin នៅក្នុងក្រុមរបស់អ្នកនៅឡើយទេ។</b>\n\n"
             "សូមចូលទៅកាន់ Group Settings → Administrators → Add Member → ជ្រើសរើសឈ្មោះខ្ញុំ រួចបើកសិទ្ធិ <b>Delete Messages</b>។"
         ),
         "no_delete_perm": (
-            "⚠️ <b>ខ្ញុំជា Admin ហើយ ប៉ុន្តែមិនទាន់មានសិទ្ធិលុបសារនៅឡើយទេ។</b>\n\n"
+            "⚠️ <b>ខ្ញុំជា Admin ប៉ុន្តែមិនទាន់មានសិទ្ធិលុបសារនៅឡើយទេ។</b>\n\n"
             "សូមជួយបើកសិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំផង។"
         ),
         "setup_ok": (
             "🎉 <b>អស្ចារ្យណាស់! ខ្ញុំរួចរាល់ហើយ។</b>\n\n"
-            "ឥឡូវនេះខ្ញុំកំពុងការពារក្រុម <b>{group}</b>។ ប្រសិនបើមានឯកសារហាមឃាត់ ខ្ញុំនឹងលុបវាចោល ហើយរាយការណ៍ជូន Admin ភ្លាមៗ។ 🛡️"
+            "ឥឡូវនេះខ្ញុំកំពុងការពារក្រុម <b>{group}</b>។ ប្រសិនបើមានអ្នកផ្ញើឯកសារហាមឃាត់ ខ្ញុំនឹងលុបវាចោល ហើយរាយការណ៍ជូន Admin ភ្លាមៗ។ 🛡️"
         ),
         "exe_removed_group": (
             "🚫 <b>ឯកសារហាមឃាត់ត្រូវបានលុបចេញ។</b> {user}\n"
@@ -435,7 +436,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "ដើម្បីសុវត្ថិភាពទាំងអស់គ្នា ឯកសារដែលអាចដំណើរការបាន (Executable Files) មិនត្រូវបានអនុញ្ញាតក្នុងក្រុមនេះទេ។"
         ),
         "admin_alert": (
-            "🚨 <b>ការជូនដំណឹងអំពីសុវត្ថិភាព៖ រកឃើញ និងលុបឯកសារហាមឃាត់</b>\n"
+            "🚨 <b>ការជូនដំណឹងសុវត្ថិភាព៖ រកឃើញ និងលុបឯកសារហាមឃាត់</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "👤 <b>អ្នកផ្ញើ៖</b> {sender_name} <code>{sender_id}</code>\n"
             "📄 <b>ឈ្មោះឯកសារ៖</b> <code>{file_name}</code>\n"
@@ -443,19 +444,19 @@ TEXTS: dict[str, dict[str, str]] = {
             "💬 <b>ក្រុម៖</b> {group_name} <code>{group_id}</code>\n"
             "📅 <b>ម៉ោង៖</b> {time} UTC\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "តើ Admin ចង់ចាត់វិធានការបែបណា?"
+            "តើ Admin ចង់ចាត់វិធានការយ៉ាងណាដែរ?"
         ),
         "btn_ban": "🔨 Ban អ្នកប្រើប្រាស់",
         "btn_warn": "⚠️ ព្រមានអ្នកប្រើប្រាស់",
-        "btn_ignore": "✅ មិនអើពើ",
-        "action_ban_ok": "🔨 <b>ចំណាត់ការ៖</b> បាន Ban និងបណ្តេញ {name} ចេញពីក្រុមរួចរាល់។",
+        "btn_ignore": "✅ រំលង",
+        "action_ban_ok": "🔨 <b>ចំណាត់ការ៖</b> បាន Ban និងបណ្ដេញ {name} ចេញពីក្រុមរួចរាល់។",
         "action_ban_fail": "❌ ខ្ញុំមិនអាច Ban គាត់បានទេ។ សូមពិនិត្យមើលថាតើខ្ញុំមានសិទ្ធិ <b>Ban Users</b> ដែរឬទេ។",
         "action_warn_ok": "⚠️ <b>ចំណាត់ការ៖</b> ខ្ញុំបានផ្ញើសារព្រមានទៅកាន់ {name} នៅក្នុងក្រុមរួចរាល់។",
         "action_warn_fail": "❌ ខ្ញុំមិនអាចផ្ញើសារព្រមានចូលទៅក្នុងក្រុមបានទេ។",
-        "action_ignore_ok": "✅ <b>ចំណាត់ការ៖</b> ករណីនេះត្រូវបានរំលង (មិនអើពើ)។",
+        "action_ignore_ok": "✅ <b>ចំណាត់ការ៖</b> ករណីនេះត្រូវបានរំលង។",
         "action_done": "<i>Admin ផ្សេងទៀតបានចាត់ការករណីនេះរួចរាល់ហើយ។</i>",
         "action_expired": "<i>ករណីនេះផុតកំណត់ ឬលែងមានសុពលភាពហើយ។</i>",
-        "action_not_admin": "❌ អ្នកមិនមែនជា Admin នៅក្នុងក្រុមនោះទៀតទេ ដូច្នេះចំណាត់ការនេះត្រូវបានបដិសេធ។",
+        "action_not_admin": "❌ អ្នកលែងជា Admin នៅក្នុងក្រុមនោះទៀតហើយ ដូច្នេះចំណាត់ការនេះត្រូវបានបដិសេធ។",
         "handled_by": "👮 <b>ចាត់ការដោយ៖</b> {admin}",
         "delete_failed": "❌ ខ្ញុំបានរកឃើញឯកសារហាមឃាត់ ប៉ុន្តែមិនអាចលុបវាបានទេ។ សូមជួយផ្តល់សិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំ។",
         "warn_in_group": (
@@ -463,28 +464,28 @@ TEXTS: dict[str, dict[str, str]] = {
             "ការផ្ញើឯកសារដែលអាចដំណើរការបាន (Executable Files) ត្រូវបានហាមឃាត់យ៉ាងតឹងរ៉ឹងក្នុងក្រុមនេះ។ សូមកុំផ្ញើវាម្តងទៀត។"
         ),
         "help": (
-            "💡 <b>EXE Remover Bot — មគ្គុទ្ទេសក៍ណែនាំ</b>\n\n"
+            "💡 <b>EXE Remover Bot — មគ្គុទ្ទេសក៍ណែនាំរហ័ស</b>\n\n"
             "/start — ជ្រើសរើសភាសា និងការកំណត់នានា\n"
-            "/help — បង្ហាញផ្ទាំងជំនួយនេះ\n"
+            "/help — បង្ហាញសារជំនួយនេះ\n"
             "/status — ពិនិត្យសិទ្ធិរបស់ Bot នៅក្នុងក្រុម\n"
             "/admins — មើលបញ្ជី Admin និងស្ថានភាពទទួលសារជូនដំណឹង\n"
             "/scanner — មើលការកំណត់ប្រព័ន្ធស្កេន (Scanner)\n"
             "/scanname &lt;filename&gt; — តេស្តឈ្មោះឯកសារថាតើមានសុវត្ថិភាពឬទេ\n"
-            "/memory — មើលស្ថានភាពផ្ទុកទិន្នន័យ (Memory)"
+            "/memory — មើលស្ថានភាពផ្ទុកទិន្នន័យរបស់ប្រព័ន្ធ"
         ),
         "status_ok": "✅ ដំណើរការបានយ៉ាងល្អ។ ខ្ញុំអាចលុបឯកសារហាមឃាត់ និងរាយការណ៍ទៅ Admin បាន។",
         "status_no": "❌ ខ្ញុំមិនអាចដំណើរការនៅទីនេះបានទេ។ សូមប្រាកដថាខ្ញុំជា Admin និងមានសិទ្ធិ <b>Delete Messages</b>។",
         "status_error": "❌ ការពិនិត្យសិទ្ធិទទួលបានបរាជ័យ៖ <code>{error}</code>",
         "admins_header": "👮 <b>ស្ថានភាពទទួលការជូនដំណឹងរបស់ Admin</b>\n",
         "admins_enabled": "✅ បើកការជូនដំណឹង",
-        "admins_need_start": "⚠️ ត្រូវការចុច /start ក្នុងសារឯកជន (Private Chat)",
-        "admins_note": "\n<i>មានតែ Admin ដែលបានចុច /start ជាមួយ Bot ក្នុងសារឯកជនប៉ុណ្ណោះ ទើបទទួលបានសាររាយការណ៍។</i>",
-        "group_only": "សូមបញ្ជូនពាក្យបញ្ជា (Command) នេះនៅខាងក្នុងក្រុម។",
+        "admins_need_start": "⚠️ ត្រូវចុច /start ក្នុង Private Chat សិន",
+        "admins_note": "\n<i>មានតែ Admin ដែលបានចុច /start ជាមួយ Bot ក្នុងសារឯកជនប៉ុណ្ណោះ ទើបអាចទទួលបានសាររាយការណ៍។</i>",
+        "group_only": "សូមប្រើប្រាស់ Command នេះនៅខាងក្នុងក្រុម។",
         "scanner_status": (
             "🧪 <b>ប្រព័ន្ធស្កេនឯកសារសង្ស័យ</b>\n"
             "បើកដំណើរការ៖ <code>{enabled}</code>\n"
             "ស្កេន Header (Magic)៖ <code>{magic}</code>\n"
-            "ស្កេនឈ្មោះក្នុង Archive៖ <code>{archive}</code>\n"
+            "ស្កេនឈ្មោះឯកសារក្នុង Archive៖ <code>{archive}</code>\n"
             "ទំហំ Download អតិបរមា៖ <code>{max_bytes}</code> bytes\n"
             "Extension ដែលហាមឃាត់៖ <code>{blocked}</code>\n"
             "Extension គ្រោះថ្នាក់៖ <code>{dangerous}</code>\n"
@@ -493,13 +494,13 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "scanname_usage": "របៀបប្រើ៖ <code>/scanname invoice.pdf.exe</code>",
         "scanname_blocked": "🚫 <b>បានហាមឃាត់៖</b> <code>{file}</code>\n🧪 <b>មូលហេតុ៖</b> {reason}",
-        "scanname_clean": "✅ <b>មិនមានហានិភ័យដោយសារឈ្មោះទេ៖</b> <code>{file}</code>",
+        "scanname_clean": "✅ <b>មិនមានហានិភ័យដោយសារឈ្មោះឯកសារទេ៖</b> <code>{file}</code>",
         "memory_status": (
-            "🧠 <b>ទិន្នន័យចងចាំរបស់ Bot (Memory)</b>\n"
+            "🧠 <b>ស្ថានភាពទិន្នន័យ (Memory)</b>\n"
             "Backend: <code>{backend}</code>\n"
             "Supabase: <code>{supabase}</code>\n"
             "Redis: <code>{redis}</code>\n"
-            "អ្នកប្រើប្រាស់ដែលបានចងចាំ: <code>{users}</code>\n"
+            "អ្នកប្រើប្រាស់ដែលបានស្គាល់: <code>{users}</code>\n"
             "ក្រុមដែលបានរក្សាទុក: <code>{groups}</code>\n"
             "ករណីដែលកំពុងបើក: <code>{incidents}</code>\n"
             "Supabase save ចុងក្រោយ: <code>{supabase_last_save}</code>\n"
@@ -508,7 +509,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "unknown_error": "មានបញ្ហាបច្ចេកទេស។ សូមព្យាយាមម្តងទៀត។",
     },
 }
-
 
 EXTRA_TEXTS: dict[str, dict[str, str]] = {
     "en": {
@@ -601,13 +601,13 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
             "Custom delete formats: <code>{custom_blocked}</code>"
         ),
         "scanner_private_manage_hint": "Use the button below to safely manage delete formats in our private chat.",
-        "scanner_group_private_only": "🔒 Scanner configuration is private-chat only. Open our private chat to view or update this group's delete formats and protection settings.",
+        "scanner_group_private_only": "🔒 Scanner configuration is restricted to private chats. Open our private chat to view or update this group's delete formats and protection settings.",
     },
     "km": {
         "home_title": (
             "🛡️ <b>EXE Remover Bot</b>\n\n"
             "ស្ថានភាព៖ <b>Online</b>\n"
-            "សូមប្រើប្រាស់ប៊ូតុងខាងក្រោម។ អ្នកអាចត្រឡប់មក Home វិញបានជានិច្ច ដូច្នេះវានឹងមិនគាំងទេ។"
+            "សូមប្រើប្រាស់ប៊ូតុងខាងក្រោម។ អ្នកអាចត្រឡប់មក Home វិញបានជានិច្ចប្រសិនបើមានបញ្ហា។"
         ),
         "btn_home": "🏠 Home (ទំព័រដើម)",
         "btn_groups": "👥 ក្រុមរបស់ខ្ញុំ",
@@ -619,7 +619,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "groups_title": "👥 <b>ក្រុមដែលបានភ្ជាប់</b>\n\nសូមជ្រើសរើសក្រុមណាមួយ ដើម្បីពិនិត្យមើលសិទ្ធិ ឬកែប្រែការកំណត់សុវត្ថិភាព។",
         "groups_empty": (
             "⚠️ <b>មិនទាន់មានក្រុមដែលបានភ្ជាប់នៅឡើយទេ។</b>\n\n"
-            "សូមបន្ថែម Bot ទៅក្នុងក្រុម ឬវាយពាក្យ <code>/settings</code> នៅក្នុងក្រុមរបស់អ្នក ដើម្បីភ្ជាប់មកកាន់ Private Dashboard។"
+            "សូមបន្ថែមខ្ញុំទៅក្នុងក្រុម ឬវាយពាក្យ <code>/settings</code> នៅក្នុងក្រុមរបស់អ្នក ដើម្បីភ្ជាប់មកកាន់ផ្ទាំងគ្រប់គ្រង (Dashboard) នេះ។"
         ),
         "group_card": (
             "💬 <b>{group}</b>\n"
@@ -635,33 +635,33 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
             "កម្រិតតឹងរ៉ឹង៖ <code>{strictness}</code>\n"
             "មុខងារស្ងាត់ (Silent)៖ <code>{silent}</code>\n"
             "Extension ដែលអនុញ្ញាត៖ <code>{allowed}</code>\n"
-            "Format ត្រូវលុបបន្ថែម៖ <code>{custom_blocked}</code>\n\n"
-            "Standard Mode គឺ Block ត្រឹម <code>.exe</code> និងឈ្មោះដែលបន្លំ។ High Mode គឺ Block រាល់ Extension ដែលមានហានិភ័យទាំងអស់។"
+            "Format ដែលត្រូវលុបបន្ថែម៖ <code>{custom_blocked}</code>\n\n"
+            "Standard Mode លុបត្រឹម <code>.exe</code> និងឈ្មោះឯកសារដែលបន្លំ។ High Mode លុបរាល់ Extension ដែលមានហានិភ័យទាំងអស់។"
         ),
         "settings_saved": "✅ ការកំណត់ត្រូវបានកែប្រែដោយជោគជ័យ។",
-        "group_linked": "✅ ក្រុមត្រូវបានភ្ជាប់មកកាន់ Private Dashboard រួចរាល់។",
+        "group_linked": "✅ ក្រុមត្រូវបានភ្ជាប់មកកាន់ Dashboard ឯកជនរបស់អ្នករួចរាល់។",
         "group_admin_only": "❌ មានតែ Admin ក្រុមប៉ុណ្ណោះ ទើបអាចចូលមើល Dashboard នេះបាន។",
-        "group_no_access": "⚠️ <b>ខ្ញុំមិនអាចដំណើរការក្នុងក្រុមនេះបានទេ។</b> ខ្ញុំអាចនឹងត្រូវបានគេដកចេញ ឬដកសិទ្ធិ។ សូមបន្ថែមខ្ញុំជា Admin ឡើងវិញ ហើយបើកសិទ្ធិ <b>Delete Messages</b> បន្ទាប់មកចុច Refresh។",
-        "group_relinked": "✅ ការភ្ជាប់ទៅកាន់ក្រុមត្រូវបានស្តារឡើងវិញ។ Permission cache ត្រូវបាន Refresh រួចរាល់។",
-        "access_denied": "❌ <b>មិនមានសិទ្ធិ។</b> ពាក្យបញ្ជានេះអនុញ្ញាតសម្រាប់តែម្ចាស់ Bot ឬ Admin ក្រុមដែលបានបញ្ជាក់ត្រឹមត្រូវប៉ុណ្ណោះ។",
+        "group_no_access": "⚠️ <b>ខ្ញុំមិនអាចដំណើរការក្នុងក្រុមនេះបានទេ។</b> ខ្ញុំប្រហែលជាត្រូវបានគេដកចេញ ឬដកសិទ្ធិ។ សូមបន្ថែមខ្ញុំជា Admin ឡើងវិញ ហើយបើកសិទ្ធិ <b>Delete Messages</b> បន្ទាប់មកចុច Refresh។",
+        "group_relinked": "✅ ការភ្ជាប់ទៅកាន់ក្រុមត្រូវបានស្តារឡើងវិញ។ Permission ត្រូវបាន Refresh រួចរាល់។",
+        "access_denied": "❌ <b>មិនមានសិទ្ធិ។</b> Command នេះអនុញ្ញាតសម្រាប់តែម្ចាស់ Bot ឬ Admin ក្រុមដែលបានបញ្ជាក់ត្រឹមត្រូវប៉ុណ្ណោះ។",
         "settings_group_open_private": "🔒 ការកំណត់អាចធ្វើបានតែក្នុង Private Chat ប៉ុណ្ណោះ។ សូមបើក Private Chat ដើម្បីគ្រប់គ្រងក្រុមនេះ៖",
-        "config_private_only": "🔒 ការកែប្រែការកំណត់អនុញ្ញាតតែក្នុង Private Chat ប៉ុណ្ណោះ។ ខ្ញុំនឹងមិនបង្ហាញ ឬកែប្រែការកំណត់នៅខាងក្នុងក្រុមសាធារណៈឡើយ។",
+        "config_private_only": "🔒 ការកែប្រែការកំណត់ត្រូវបានអនុញ្ញាតតែក្នុង Private Chat ប៉ុណ្ណោះ។ ខ្ញុំនឹងមិនបង្ហាញ ឬកែប្រែការកំណត់នៅខាងក្នុងក្រុមសាធារណៈឡើយ។",
         "protection_on": "បើក (ON)",
         "protection_off": "បិទ (OFF)",
         "silent_on": "ពិត (True)",
         "silent_off": "ទេ (False)",
         "strict_standard": "ធម្មតា (Standard)",
-        "strict_high": "ខ្ពស់ (High)",
+        "strict_high": "តឹងរ៉ឹង (High)",
         "perm_ok": "✅ អាចលុបបាន",
         "perm_no": "❌ ត្រូវការសិទ្ធិ Delete Messages",
-        "perm_unknown": "⚠️ មិនស្គាល់",
+        "perm_unknown": "⚠️ មិនច្បាស់លាស់",
         "btn_manage_formats": "🧩 គ្រប់គ្រង Format ត្រូវលុប",
         "btn_add_format": "➕ បន្ថែម Format",
         "btn_remove_format": "🗑 លុប Format",
         "btn_edit_formats": "✏️ កែប្រែបញ្ជី",
         "btn_clear_formats": "🧹 លុបចេញទាំងអស់",
         "formats_title": (
-            "🧩 <b>គ្រប់គ្រងការលុបតាម Format ផ្ទាល់ខ្លួន (Custom Delete)</b>\n"
+            "🧩 <b>គ្រប់គ្រងការលុបតាម Format (Custom Delete)</b>\n"
             "💬 <b>{group}</b> <code>{chat_id}</code>\n\n"
             "Format ដែលបានកំណត់បច្ចុប្បន្ន៖ <code>{custom_blocked}</code>\n\n"
             "រាល់ឯកសារដែលបញ្ចប់ដោយ Extension ទាំងនេះ នឹងត្រូវបានលុបចោលនៅក្នុងក្រុមនេះ។ ឧទាហរណ៍៖ <code>.apk</code>, <code>.zip</code>, <code>.pdf</code>។"
@@ -669,7 +669,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "formats_empty": "មិនទាន់មាន Custom Delete Format នៅឡើយទេ។",
         "formats_prompt_add": (
             "➕ <b>បន្ថែម Delete Formats</b>\n\n"
-            "សូមបញ្ជូន Extension ដោយបំបែកវាដោយដកឃ្លា ឬសញ្ញាក្បៀស (Comma)។\n"
+            "សូមបញ្ចូល Extension ដោយដកឃ្លា ឬប្រើសញ្ញាក្បៀស (Comma)។\n"
             "ឧទាហរណ៍៖ <code>.apk .zip .pdf</code>\n\n"
             "ចុចប៊ូតុង <b>ត្រឡប់ក្រោយ</b> ឬ <b>Home</b> ដើម្បីបោះបង់។"
         ),
@@ -682,8 +682,8 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "formats_saved": "✅ បញ្ជី Delete Formats ត្រូវបានធ្វើបច្ចុប្បន្នភាព។",
         "formats_removed": "✅ បានដក <code>{ext}</code> ចេញពីបញ្ជីដែលត្រូវលុប។",
         "formats_cleared": "✅ Custom Delete Formats ត្រូវបានលុបសម្អាត។",
-        "formats_invalid": "❌ ខ្ញុំរកមិនឃើញ Extension ដែលត្រឹមត្រូវទេ។ សូមសាកល្បងបញ្ជូនបែបនេះ៖ <code>.apk .zip .pdf</code>",
-        "formats_cancelled": "✅ បានបោះបង់។",
+        "formats_invalid": "❌ ខ្ញុំរកមិនឃើញ Extension ត្រឹមត្រូវទេ។ សូមសាកល្បងបញ្ចូលតាមគំរូនេះ៖ <code>.apk .zip .pdf</code>",
+        "formats_cancelled": "✅ សកម្មភាពត្រូវបានបោះបង់។",
         "scanner_group_status": (
             "\n\n⚙️ <b>ក្រុមនេះ</b>\n"
             "ការការពារ៖ <code>{protection}</code>\n"
@@ -698,14 +698,6 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
 }
 for _lang, _items in EXTRA_TEXTS.items():
     TEXTS.setdefault(_lang, {}).update(_items)
-
-
-# ─────────────────────────────────────────────────────────────
-# BUTTON-ONLY UX + DEVELOPER DASHBOARD TEXT
-# Commands still exist internally for Telegram deep-link/fallback handling, but
-# the public interface is button-first and the Telegram command menu is hidden
-# during post_init().
-# ─────────────────────────────────────────────────────────────
 
 BUTTON_ONLY_TEXTS: dict[str, dict[str, str]] = {
     "en": {
@@ -786,43 +778,43 @@ BUTTON_ONLY_TEXTS: dict[str, dict[str, str]] = {
         "home_title": (
             "🛡️ <b>EXE Remover Bot</b>\n\n"
             "ស្ថានភាព: <b>Online</b>\n"
-            "ប្រើប៊ូតុងខាងក្រោមដើម្បីគ្រប់គ្រងទាំងអស់។ មិនចាំបាច់ប្រើ command ទេ។"
+            "សូមប្រើប៊ូតុងខាងក្រោមដើម្បីគ្រប់គ្រងមុខងារទាំងអស់ ដោយមិនចាំបាច់វាយ Command ឡើយ។"
         ),
         "help": (
-            "💡 <b>របៀបប្រើ Bot</b>\n\n"
-            "ប្រើប៊ូតុងលើ dashboard ដើម្បីបន្ថែមក្រុម ពិនិត្យសិទ្ធិ កែការការពារ "
-            "គ្រប់គ្រង delete formats និង refresh status។\n\n"
-            "Admin ក្រុមអាចបើក settings ពី private dashboard។ Developer អាចបើក developer dashboard "
-            "ដើម្បីមើល users, groups, storage និងស្ថានភាព bot។"
+            "💡 <b>របៀបប្រើប្រាស់ Bot នេះ</b>\n\n"
+            "ប្រើប្រាស់ប៊ូតុងនៅលើ Dashboard ដើម្បីបន្ថែមក្រុម, ពិនិត្យសិទ្ធិ, កែប្រែការការពារ, "
+            "គ្រប់គ្រង Delete Formats, និង Refresh ស្ថានភាព។\n\n"
+            "Admin ក្រុមអាចបើក Settings ពី Private Dashboard។ ចំណែក Developer អាចបើក Developer Dashboard "
+            "ដើម្បីត្រួតពិនិត្យអ្នកប្រើប្រាស់, ក្រុម, ទិន្នន័យ (Storage), និងស្ថានភាព Bot ទាំងមូល។"
         ),
         "btn_developer": "🧑‍💻 Developer Dashboard",
-        "btn_dev_users": "👤 អ្នកប្រើ Bot",
-        "btn_dev_groups": "💬 ក្រុម Bot",
-        "btn_dev_memory": "🧠 Memory / Storage",
-        "btn_dev_hash_config": "🔐 Trusted Hash Config",
-        "btn_hash_size": "📦 ទំហំ File Hash",
-        "btn_hash_limit": "🔢 ចំនួន Hash ក្នុងមួយក្រុម",
+        "btn_dev_users": "👤 អ្នកប្រើប្រាស់ Bot",
+        "btn_dev_groups": "💬 ក្រុមរបស់ Bot",
+        "btn_dev_memory": "🧠 ស្ថានភាព Memory / Storage",
+        "btn_dev_hash_config": "🔐 កំណត់ Trusted Hash",
+        "btn_hash_size": "📦 ទំហំ File Hash អតិបរមា",
+        "btn_hash_limit": "🔢 ចំនួន Hash អតិបរមាក្នុងមួយក្រុម",
         "btn_hash_enable": "🟢 បើក Whitelist",
         "btn_hash_disable": "🔴 បិទ Whitelist",
-        "dev_hash_config_saved": "✅ បានកែ Trusted hash config រួចរាល់។",
+        "dev_hash_config_saved": "✅ បានកែប្រែ Trusted Hash Config រួចរាល់។",
         "dev_hash_config_title": (
             "🔐 <b>Trusted Hash Runtime Config</b>\n\n"
-            "បើក: <code>{enabled}</code>\n"
-            "ទំហំ download អតិបរមា: <code>{max_bytes}</code> bytes (<code>{max_mb}</code>)\n"
-            "Trusted hashes អតិបរមា/ក្រុម: <code>{max_hashes}</code>\n\n"
-            "Env defaults ប្រើពេល boot ដំបូង ប៉ុន្តែតម្លៃក្នុង Dashboard នេះ override ហើយរក្សាទុកក្នុង Redis/Supabase។"
+            "បើកដំណើរការ: <code>{enabled}</code>\n"
+            "ទំហំ Download អតិបរមា: <code>{max_bytes}</code> bytes (<code>{max_mb}</code>)\n"
+            "ចំនួន Trusted hashes អតិបរមា/ក្រុម: <code>{max_hashes}</code>\n\n"
+            "Env defaults ប្រើពេល Boot ដំបូង ប៉ុន្តែតម្លៃក្នុង Dashboard នេះមានអាទិភាពជាង ហើយរក្សាទុកក្នុង Redis/Supabase។"
         ),
-        "dev_hash_size_title": "📦 <b>ជ្រើសទំហំ file អតិបរមា សម្រាប់ trusted-hash upload</b>\n\nបច្ចុប្បន្ន: <code>{max_bytes}</code> bytes (<code>{max_mb}</code>)",
-        "dev_hash_limit_title": "🔢 <b>ជ្រើសចំនួន trusted hashes អតិបរមា ក្នុងមួយក្រុម</b>\n\nបច្ចុប្បន្ន: <code>{max_hashes}</code>",
+        "dev_hash_size_title": "📦 <b>ជ្រើសរើសទំហំ File អតិបរមា សម្រាប់ Trusted-hash upload</b>\n\nបច្ចុប្បន្ន: <code>{max_bytes}</code> bytes (<code>{max_mb}</code>)",
+        "dev_hash_limit_title": "🔢 <b>ជ្រើសរើសចំនួន Trusted hashes អតិបរមា ក្នុងមួយក្រុម</b>\n\nបច្ចុប្បន្ន: <code>{max_hashes}</code>",
         "btn_next": "បន្ទាប់ ➡️",
         "btn_prev": "⬅️ ថយក្រោយ",
-        "dev_only": "❌ <b>សម្រាប់ Developer ប៉ុណ្ណោះ។</b> សូមបន្ថែម Telegram ID របស់អ្នកក្នុង <code>BOT_OWNER_IDS</code>។",
+        "dev_only": "❌ <b>សម្រាប់តែ Developer ប៉ុណ្ណោះ។</b> សូមបន្ថែម Telegram ID របស់អ្នកទៅក្នុង <code>BOT_OWNER_IDS</code>។",
         "dev_title": (
             "🧑‍💻 <b>Developer Dashboard</b>\n\n"
-            "Users: <code>{users}</code>\n"
-            "Groups: <code>{groups}</code>\n"
-            "Open incidents: <code>{incidents}</code>\n"
-            "Feedback: <code>{feedback}</code>\n"
+            "អ្នកប្រើប្រាស់ (Users): <code>{users}</code>\n"
+            "ក្រុម (Groups): <code>{groups}</code>\n"
+            "ករណីកំពុងបើក (Incidents): <code>{incidents}</code>\n"
+            "មតិកែលម្អ (Feedback): <code>{feedback}</code>\n"
             "Admin cache: <code>{admin_cache}</code>\n"
             "Bot permission cache: <code>{bot_perm_cache}</code>\n"
             "Chat metadata cache: <code>{chat_meta}</code>\n"
@@ -830,36 +822,35 @@ BUTTON_ONLY_TEXTS: dict[str, dict[str, str]] = {
             "Redis: <code>{redis}</code>\n"
             "Backend: <code>{backend}</code>"
         ),
-        "dev_users_title": "👤 <b>អ្នកប្រើ Bot</b>\nPage <code>{page}</code>/<code>{pages}</code> · Total <code>{total}</code>\n\nចុចលើ user ដើម្បីមើលព័ត៌មានលម្អិត។",
-        "dev_users_empty": "👤 <b>អ្នកប្រើ Bot</b>\n\nមិនទាន់មាន user បានរក្សាទុកទេ។",
+        "dev_users_title": "👤 <b>អ្នកប្រើប្រាស់ Bot</b>\nទំព័រ <code>{page}</code>/<code>{pages}</code> · សរុប <code>{total}</code>\n\nចុចលើឈ្មោះអ្នកប្រើប្រាស់ ដើម្បីមើលព័ត៌មានលម្អិត។",
+        "dev_users_empty": "👤 <b>អ្នកប្រើប្រាស់ Bot</b>\n\nមិនទាន់មានអ្នកប្រើប្រាស់ដែលបានរក្សាទុកទេ។",
         "dev_user_detail": (
-            "👤 <b>User Detail</b>\n\n"
+            "👤 <b>ព័ត៌មានលម្អិតអ្នកប្រើប្រាស់</b>\n\n"
             "ឈ្មោះ: <b>{name}</b>\n"
             "Username: <code>{username}</code>\n"
             "User ID: <code>{user_id}</code>\n"
             "ភាសា: <code>{lang}</code>\n"
-            "Groups linked: <code>{groups_count}</code>\n"
+            "ក្រុមដែលបានភ្ជាប់: <code>{groups_count}</code>\n"
             "First seen: <code>{first_seen}</code>\n"
             "Last seen: <code>{last_seen}</code>"
         ),
-        "dev_groups_title": "💬 <b>ក្រុម Bot</b>\nTotal <code>{total}</code>\n\nចុចលើក្រុមដើម្បីបើក settings។",
-        "dev_groups_empty": "💬 <b>ក្រុម Bot</b>\n\nមិនទាន់មានក្រុមបានរក្សាទុកទេ។",
+        "dev_groups_title": "💬 <b>ក្រុមរបស់ Bot</b>\nសរុប <code>{total}</code>\n\nចុចលើក្រុមណាមួយ ដើម្បីបើក Settings។",
+        "dev_groups_empty": "💬 <b>ក្រុមរបស់ Bot</b>\n\nមិនទាន់មានក្រុមដែលបានរក្សាទុកទេ។",
         "dev_memory_title": (
             "🧠 <b>Memory / Storage</b>\n\n"
             "Backend: <code>{backend}</code>\n"
             "Supabase: <code>{supabase}</code>\n"
             "Redis: <code>{redis}</code>\n"
-            "Known users: <code>{users}</code>\n"
-            "Saved groups: <code>{groups}</code>\n"
-            "Open incidents: <code>{incidents}</code>\n"
-            "Last Supabase save: <code>{supabase_last_save}</code>\n"
-            "Last Redis save: <code>{redis_last_save}</code>"
+            "អ្នកប្រើប្រាស់ដែលបានស្គាល់: <code>{users}</code>\n"
+            "ក្រុមដែលបានរក្សាទុក: <code>{groups}</code>\n"
+            "ករណីដែលកំពុងបើក: <code>{incidents}</code>\n"
+            "Supabase save ចុងក្រោយ: <code>{supabase_last_save}</code>\n"
+            "Redis save ចុងក្រោយ: <code>{redis_last_save}</code>"
         ),
     },
 }
 for _lang, _items in BUTTON_ONLY_TEXTS.items():
     TEXTS.setdefault(_lang, {}).update(_items)
-
 
 GROUP_ADMIN_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
     "en": {
@@ -899,7 +890,7 @@ GROUP_ADMIN_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
         "allowed_invalid": "❌ Hard-blocked executable formats cannot be added to Allowed Formats. Use Trusted File Hashes to approve one exact safe file instead.",
         "allowed_removed": "✅ Removed <code>{ext}</code> from allowed formats.",
         "allowed_cleared": "✅ Allowed formats cleared.",
-        "auto_title": "🤖 <b>Auto Action Rules</b>\n💬 <b>{group}</b>\n\nMode: <code>{mode}</code>\nWarn threshold: <code>{warn_threshold}</code>\nMute threshold: <code>{mute_threshold}</code>\nBan threshold: <code>{ban_threshold}</code>\nMute length: <code>{mute_minutes} minutes</code>\n\nRecommended: <b>Smart</b> = warn first, mute repeated offenders, ban heavy repeat offenders.",
+        "auto_title": "🤖 <b>Auto Action Rules</b>\n💬 <b>{group}</b>\n\nMode: <code>{mode}</code>\nWarn threshold: <code>{warn_threshold}</code>\nMute threshold: <code>{mute_threshold}</code>\nBan threshold: <code>{ban_threshold}</code>\nMute length: <code>{mute_minutes} minutes</code>\n\nRecommended: <b>Smart</b> = warn first, mute repeat offenders, and ban persistent offenders.",
         "btn_auto_off": "⛔ Auto Action OFF",
         "btn_auto_warn": "⚠️ Warn Only",
         "btn_auto_smart": "🤖 Smart Warn → Mute → Ban",
@@ -919,70 +910,65 @@ GROUP_ADMIN_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
         "trusted_hash_file_too_large": "❌ File is too large to hash safely. Developer can increase the trusted-hash max file size from the Developer Dashboard.",
     },
     "km": {
-        "group_admin_title": "⚙️ <b>Group Admin Panel</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\n🛡 Protection: <code>{protection}</code>\n🔥 Strictness: <code>{strictness}</code>\n🔇 Silent mode: <code>{silent}</code>\n🧩 Blocked formats: <code>{custom_blocked}</code>\n✅ Allowed formats: <code>{allowed}</code>\n🔐 Trusted hashes: <code>{trusted_hashes}</code>\n⚙️ Auto action: <code>{auto_action}</code>",
+        "group_admin_title": "⚙️ <b>Group Admin Panel</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\n🛡 ការការពារ: <code>{protection}</code>\n🔥 កម្រិតតឹងរ៉ឹង: <code>{strictness}</code>\n🔇 មុខងារស្ងាត់: <code>{silent}</code>\n🧩 Format ដែលបាន Block: <code>{custom_blocked}</code>\n✅ Format ដែលអនុញ្ញាត: <code>{allowed}</code>\n🔐 Hash ដែលទុកចិត្ត: <code>{trusted_hashes}</code>\n⚙️ សកម្មភាពស្វ័យប្រវត្តិ: <code>{auto_action}</code>",
         "btn_protection_status": "🛡 ស្ថានភាពការពារ",
-        "btn_scanner_settings": "🧪 កំណត់ Scanner",
-        "btn_incident_logs": "🚨 ប្រវត្តិ Incident",
-        "btn_member_risk": "👥 User Risk List",
-        "btn_admin_alert_status": "👮 ស្ថានភាព Admin Alert",
+        "btn_scanner_settings": "🧪 ការកំណត់ Scanner",
+        "btn_incident_logs": "🚨 ប្រវត្តិល្មើស (Incident)",
+        "btn_member_risk": "👥 បញ្ជីសមាជិកមានហានិភ័យ",
+        "btn_admin_alert_status": "👮 ស្ថានភាពសារជូនដំណឹង Admin",
         "btn_blocked_formats": "🧩 Blocked Formats",
         "btn_allowed_formats": "✅ Allowed Formats",
-        "btn_silent_mode": "🔇 Silent Mode",
-        "btn_strictness_level": "🔥 Strictness Level",
+        "btn_silent_mode": "🔇 Silent Mode (ស្ងាត់)",
+        "btn_strictness_level": "🔥 កម្រិតតឹងរ៉ឹង",
         "btn_group_health": "🩺 ពិនិត្យសុខភាពក្រុម",
         "btn_auto_actions": "🤖 Auto Action Rules",
         "btn_trusted_hashes": "🔐 Trusted File Hashes",
-        "btn_turn_on": "🟢 បើក",
-        "btn_turn_off": "🔴 បិទ",
-        "btn_clear_handled": "🧹 សម្អាត Logs ដែលបានចាត់ការ",
-        "protection_status_title": "🛡 <b>Protection Status</b>\n💬 <b>{group}</b>\n\nProtection: <code>{protection}</code>\nStrictness: <code>{strictness}</code>\nSilent mode: <code>{silent}</code>\nBot permission: <code>{bot_permission}</code>\nAuto action: <code>{auto_action}</code>",
-        "scanner_panel_title": "🧪 <b>Scanner Settings</b>\n💬 <b>{group}</b>\n{scanner}",
-        "incidents_title": "🚨 <b>Incident Logs</b>\n💬 <b>{group}</b>\nTotal: <code>{total}</code>\n\n{items}",
-        "incidents_empty": "មិនទាន់មាន incident សម្រាប់ក្រុមនេះទេ។",
-        "incidents_cleared": "✅ បានសម្អាត handled incident logs។",
-        "member_risk_title": "👥 <b>Member Risk List</b>\n💬 <b>{group}</b>\n\n{items}",
-        "member_risk_empty": "មិនទាន់មាន risky member ទេ។",
-        "admin_alert_title": "👮 <b>Admin Alert Status</b>\n💬 <b>{group}</b>\nReady: <code>{ready}</code>/<code>{total}</code>\n\n{items}\n\n<i>Admin ត្រូវបើក bot ក្នុង private ម្តង ដើម្បីទទួល alert។</i>",
-        "health_title": "🩺 <b>Group Health Check</b>\n💬 <b>{group}</b>\n\nBot is admin: {bot_admin}\nCan delete messages: {can_delete}\nCan restrict members: {can_restrict}\nProtection enabled: {protection}\nScanner enabled: {scanner}\nAdmin alerts ready: <code>{ready}</code>/<code>{total}</code>",
-        "allowed_title": "✅ <b>Allowed Formats</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\nAllowed formats បច្ចុប្បន្ន: <code>{allowed}</code>\n\nAllowed formats អាច bypass custom blocked formats។ កុំ allow <code>.exe</code> បើមិនទុកចិត្តក្រុម។",
-        "btn_add_allowed": "➕ Allow Format",
-        "btn_edit_allowed": "✏️ កែ Allowed List",
+        "btn_turn_on": "🟢 បើក (ON)",
+        "btn_turn_off": "🔴 បិទ (OFF)",
+        "btn_clear_handled": "🧹 សម្អាត Logs ដែលបានចាត់ការហើយ",
+        "protection_status_title": "🛡 <b>ស្ថានភាពការពារ</b>\n💬 <b>{group}</b>\n\nការការពារ: <code>{protection}</code>\nកម្រិតតឹងរ៉ឹង: <code>{strictness}</code>\nមុខងារស្ងាត់: <code>{silent}</code>\nសិទ្ធិរបស់ Bot: <code>{bot_permission}</code>\nសកម្មភាពស្វ័យប្រវត្តិ: <code>{auto_action}</code>",
+        "scanner_panel_title": "🧪 <b>ការកំណត់ Scanner</b>\n💬 <b>{group}</b>\n{scanner}",
+        "incidents_title": "🚨 <b>ប្រវត្តិល្មើស (Incident Logs)</b>\n💬 <b>{group}</b>\nសរុប: <code>{total}</code>\n\n{items}",
+        "incidents_empty": "មិនទាន់មានប្រវត្តិល្មើសសម្រាប់ក្រុមនេះទេ។",
+        "incidents_cleared": "✅ បានសម្អាត Incident Logs ដែលបានចាត់ការរួច។",
+        "member_risk_title": "👥 <b>បញ្ជីសមាជិកមានហានិភ័យ</b>\n💬 <b>{group}</b>\n\n{items}",
+        "member_risk_empty": "មិនទាន់មានសមាជិកដែលមានហានិភ័យទេ។",
+        "admin_alert_title": "👮 <b>ស្ថានភាពសារជូនដំណឹង Admin</b>\n💬 <b>{group}</b>\nរួចរាល់: <code>{ready}</code>/<code>{total}</code>\n\n{items}\n\n<i>Admin ត្រូវចុច Start Bot ក្នុង Private Chat យ៉ាងហោចណាស់ម្ដង ដើម្បីទទួលបានសារជូនដំណឹង។</i>",
+        "health_title": "🩺 <b>ពិនិត្យសុខភាពក្រុម</b>\n💬 <b>{group}</b>\n\nBot ជា Admin: {bot_admin}\nអាចលុបសារបាន: {can_delete}\nអាចកំណត់សិទ្ធិសមាជិកបាន (Restrict): {can_restrict}\nការការពារបានបើក: {protection}\nScanner បានបើក: {scanner}\nAdmin ត្រៀមទទួលសារជូនដំណឹង: <code>{ready}</code>/<code>{total}</code>",
+        "allowed_title": "✅ <b>Format ដែលអនុញ្ញាត (Allowed Formats)</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\nFormat ដែលអនុញ្ញាតបច្ចុប្បន្ន: <code>{allowed}</code>\n\nAllowed Formats អាចរំលង Blocked Formats របស់អ្នកបាន។ សូមកុំអនុញ្ញាត (Allow) <code>.exe</code> លើកលែងតែអ្នកទុកចិត្តក្រុមទាំងស្រុង។",
+        "btn_add_allowed": "➕ បន្ថែម Allowed Format",
+        "btn_edit_allowed": "✏️ កែប្រែបញ្ជី Allowed",
         "btn_remove_allowed": "🗑 លុប Allowed Format",
-        "btn_clear_allowed": "🧹 សម្អាត Allowed List",
-        "allowed_prompt_add": "✅ <b>Allow formats</b>\n\nផ្ញើ extension ដោយបំបែកជាចន្លោះ ឬ comma។\nឧទាហរណ៍: <code>.zip .pdf</code>\n\nចុច Home ឬ Back ដើម្បីបោះបង់។",
-        "allowed_prompt_edit": "✏️ <b>Edit allowed list</b>\n\nផ្ញើ allowed list ថ្មីទាំងមូល។\nឧទាហរណ៍: <code>.zip .pdf</code>\n\nចុច Home ឬ Back ដើម្បីបោះបង់។",
-        "allowed_saved": "✅ បានកែ allowed format list។",
-        "allowed_invalid": "❌ មិនអាចដាក់ executable formats ដែល hard-block ទៅ Allowed Formats បានទេ។ សូមប្រើ Trusted File Hashes ដើម្បីអនុញ្ញាត file សុវត្ថិភាពជាក់លាក់មួយ។",
-        "allowed_removed": "✅ បានដក <code>{ext}</code> ចេញពី allowed formats។",
-        "allowed_cleared": "✅ បានសម្អាត allowed formats។",
-        "auto_title": "🤖 <b>Auto Action Rules</b>\n💬 <b>{group}</b>\n\nMode: <code>{mode}</code>\nWarn threshold: <code>{warn_threshold}</code>\nMute threshold: <code>{mute_threshold}</code>\nBan threshold: <code>{ban_threshold}</code>\nMute length: <code>{mute_minutes} minutes</code>\n\nណែនាំ: <b>Smart</b> = warn, mute អ្នកធ្វើម្ដងហើយម្ដងទៀត, ban អ្នកធ្ងន់។",
-        "btn_auto_off": "⛔ Auto Action OFF",
-        "btn_auto_warn": "⚠️ Warn Only",
-        "btn_auto_smart": "🤖 Smart Warn → Mute → Ban",
-        "btn_auto_ban": "🔨 Aggressive Auto Ban",
-        "auto_saved": "✅ បានកែ auto action rule។",
-        "trusted_hash_title": "🔐 <b>Trusted File Hash Whitelist</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\nTrusted hashes: <code>{count}</code>/<code>{limit}</code>\n\n{items}\n\nផ្ញើ file ដែលមានសុវត្ថិភាពក្នុង private chat ឬ paste SHA256 hash ដើម្បីអនុញ្ញាត file នោះជាក់លាក់។ បើ file ដូចគ្នាត្រូវបានផ្ញើម្ដងទៀត Bot នឹងអនុញ្ញាត ទោះបីជា <code>.exe</code> ក៏ដោយ។",
-        "trusted_hash_empty": "មិនទាន់មាន trusted hash ទេ។",
-        "btn_add_hash": "➕ Add Trusted File/Hash",
-        "btn_remove_hash": "🗑 Remove Trusted Hash",
-        "btn_clear_hashes": "🧹 Clear Trusted Hashes",
-        "trusted_hash_prompt_add": "🔐 <b>Add Trusted File Hash</b>\n\nផ្ញើ safe file នៅទីនេះក្នុង private chat ឬ paste SHA256 hash។\n\n⚠️ អនុញ្ញាតតែ file ដែលអ្នកទុកចិត្តពិតប្រាកដ។ ចុច Home ឬ Back ដើម្បីបោះបង់។",
-        "trusted_hash_saved": "✅ បានបន្ថែម trusted hash។",
-        "trusted_hash_removed": "✅ បានលុប trusted hash។",
-        "trusted_hash_cleared": "✅ បានសម្អាត trusted hash whitelist។",
-        "trusted_hash_invalid": "❌ ផ្ញើ SHA256 hash ត្រឹមត្រូវ ឬ upload file តូចជាង whitelist download limit។",
-        "trusted_hash_limit": "❌ Trusted hash whitelist ពេញហើយ។ សូមលុប hash ចាស់មួយសិន។",
-        "trusted_hash_file_too_large": "❌ File ធំពេក មិនអាច hash ដោយសុវត្ថិភាពបានទេ។ Developer អាចបង្កើន trusted-hash max file size ក្នុង Developer Dashboard។",
+        "btn_clear_allowed": "🧹 សម្អាតបញ្ជី Allowed",
+        "allowed_prompt_add": "✅ <b>បន្ថែម Allowed Formats</b>\n\nសូមបញ្ចូលឈ្មោះ Extension ដោយដកឃ្លា ឬប្រើសញ្ញាក្បៀស (Comma)។\nឧទាហរណ៍: <code>.zip .pdf</code>\n\nចុចប៊ូតុង Home ឬ Back ដើម្បីបោះបង់។",
+        "allowed_prompt_edit": "✏️ <b>កែប្រែបញ្ជី Allowed Formats</b>\n\nសូមបញ្ចូលបញ្ជីថ្មីទាំងមូល។\nឧទាហរណ៍: <code>.zip .pdf</code>\n\nចុចប៊ូតុង Home ឬ Back ដើម្បីបោះបង់។",
+        "allowed_saved": "✅ បញ្ជី Allowed Format ត្រូវបានកែប្រែដោយជោគជ័យ។",
+        "allowed_invalid": "❌ មិនអាចបញ្ចូល Executable formats ដែលមានហានិភ័យខ្ពស់ ទៅក្នុង Allowed Formats បានទេ។ សូមប្រើប្រាស់ <b>Trusted File Hashes</b> ដើម្បីអនុញ្ញាត File សុវត្ថិភាពជាក់លាក់មួយវិញ។",
+        "allowed_removed": "✅ បានដក <code>{ext}</code> ចេញពី Allowed formats រួចរាល់។",
+        "allowed_cleared": "✅ បញ្ជី Allowed formats ត្រូវបានសម្អាត។",
+        "auto_title": "🤖 <b>ច្បាប់ចំណាត់ការស្វ័យប្រវត្តិ (Auto Action Rules)</b>\n💬 <b>{group}</b>\n\nម៉ូដ (Mode): <code>{mode}</code>\nកម្រិតព្រមាន (Warn): <code>{warn_threshold}</code>\nកម្រិតបិទមតិ (Mute): <code>{mute_threshold}</code>\nកម្រិតបណ្ដេញចេញ (Ban): <code>{ban_threshold}</code>\nរយៈពេល Mute: <code>{mute_minutes} នាទី</code>\n\nណែនាំ៖ <b>Smart</b> = ព្រមានជាមុន, Mute អ្នកដែលនៅតែបន្តល្មើស, និង Ban អ្នកល្មើសធ្ងន់ធ្ងរ។",
+        "btn_auto_off": "⛔ បិទ Auto Action",
+        "btn_auto_warn": "⚠️ ត្រឹមតែព្រមាន (Warn Only)",
+        "btn_auto_smart": "🤖 ឆ្លាតវៃ (Smart Warn → Mute → Ban)",
+        "btn_auto_ban": "🔨 Ban ដោយស្វ័យប្រវត្តិ",
+        "auto_saved": "✅ ច្បាប់ចំណាត់ការស្វ័យប្រវត្តិត្រូវបានកែប្រែ។",
+        "trusted_hash_title": "🔐 <b>បញ្ជី File Hash ដែលទុកចិត្ត (Whitelist)</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\nTrusted hashes: <code>{count}</code>/<code>{limit}</code>\n\n{items}\n\nផ្ញើ File ដែលមានសុវត្ថិភាពនៅក្នុង Private chat ឬ Paste លេខកូដ SHA256 hash ដើម្បីអនុញ្ញាត File នោះជាក់លាក់។ ប្រសិនបើ File នោះត្រូវបានគេផ្ញើម្ដងទៀត Bot នឹងអនុញ្ញាត ទោះបីជាឈ្មោះបញ្ចប់ដោយ <code>.exe</code> ក៏ដោយ។",
+        "trusted_hash_empty": "មិនទាន់មាន Trusted hash នៅឡើយទេ។",
+        "btn_add_hash": "➕ បន្ថែម Trusted File/Hash",
+        "btn_remove_hash": "🗑 លុប Trusted Hash",
+        "btn_clear_hashes": "🧹 សម្អាត Trusted Hashes",
+        "trusted_hash_prompt_add": "🔐 <b>បន្ថែម Trusted File Hash</b>\n\nសូមផ្ញើ File ដែលមានសុវត្ថិភាពនៅទីនេះក្នុង Private chat ឬ Paste លេខកូដ SHA256 hash។\n\n⚠️ អនុញ្ញាតតែ File ណាដែលអ្នកជឿជាក់ពិតប្រាកដប៉ុណ្ណោះ។ ចុចប៊ូតុង Home ឬ Back ដើម្បីបោះបង់។",
+        "trusted_hash_saved": "✅ បានបន្ថែម Trusted hash រួចរាល់។",
+        "trusted_hash_removed": "✅ បានលុប Trusted hash ចេញវិញ។",
+        "trusted_hash_cleared": "✅ បានសម្អាតបញ្ជី Trusted hash whitelist ទាំងស្រុង។",
+        "trusted_hash_invalid": "❌ សូមបញ្ចូលកូដ SHA256 hash ឱ្យបានត្រឹមត្រូវ ឬ Upload File ដែលមានទំហំតូចជាងដែនកំណត់របស់ Whitelist។",
+        "trusted_hash_limit": "❌ បញ្ជី Trusted hash whitelist ពេញហើយ។ សូមលុប Hash ចាស់ៗមួយចំនួនសិន។",
+        "trusted_hash_file_too_large": "❌ File មានទំហំធំពេក មិនអាច Hash ដោយសុវត្ថិភាពបានទេ។ Developer អាចបង្កើនទំហំ File អតិបរមានៅក្នុង Developer Dashboard។",
     },
 }
 for _lang, _items in GROUP_ADMIN_DASHBOARD_TEXTS.items():
     TEXTS.setdefault(_lang, {}).update(_items)
 
-# ─────────────────────────────────────────────────────────────
-# INTERFACE UPGRADE PACK
-# Clearer, button-first UI copy for private dashboard + group admin panel.
-# This overrides older labels without changing moderation behavior.
-# ─────────────────────────────────────────────────────────────
 INTERFACE_UPGRADE_TEXTS: dict[str, dict[str, str]] = {
     "en": {
         "home_title": (
@@ -1061,7 +1047,7 @@ INTERFACE_UPGRADE_TEXTS: dict[str, dict[str, str]] = {
             "Mute threshold: <code>{mute_threshold}</code>\n"
             "Ban threshold: <code>{ban_threshold}</code>\n"
             "Mute length: <code>{mute_minutes} minutes</code>\n\n"
-            "Recommended: <b>Smart</b> (Warn first, mute repeat offenders, ban heavy repeat offenders)."
+            "Recommended: <b>Smart</b> (Warn first, mute repeat offenders, and ban persistent offenders)."
         ),
         "trusted_hash_title": (
             "🔐 <b>Trusted File Hash Whitelist</b>\n"
@@ -1078,18 +1064,18 @@ INTERFACE_UPGRADE_TEXTS: dict[str, dict[str, str]] = {
             "━━━━━━━━━━━━━━━━━━━━\n"
             "ស្ថានភាព៖ 🟢 <b>Online</b>\n"
             "ម៉ូដ (Mode)៖ <b>Button-first Control Panel</b>\n\n"
-            "អ្នកអាចគ្រប់គ្រងការការពារក្រុម, ច្បាប់ Scanner, Trusted Hashes, សារជូនដំណឹង Admin និងប្រវត្តិលុបចេញពីផ្ទាំងតែមួយ។"
+            "អ្នកអាចគ្រប់គ្រងការការពារក្រុម, ច្បាប់ Scanner, Trusted Hashes, សារជូនដំណឹង Admin និងប្រវត្តិល្មើសចេញពីផ្ទាំងតែមួយ។"
         ),
         "groups_title": (
             "👥 <b>ក្រុមដែលកំពុងការពារ</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "ចុចលើក្រុមណាមួយ ដើម្បីបើកផ្ទាំងគ្រប់គ្រងក្រុមនោះ។\n"
+            "ចុចលើក្រុមណាមួយ ដើម្បីបើកផ្ទាំងគ្រប់គ្រងរបស់ក្រុមនោះ។\n"
             "🟢 រួចរាល់ · 🟡 ត្រូវពិនិត្យមើល · 🔴 មិនអាចចូលបាន"
         ),
         "groups_empty": (
             "👥 <b>មិនទាន់មានក្រុមដែលកំពុងការពារទេ</b>\n\n"
             "សូមបន្ថែមខ្ញុំទៅក្នុងក្រុម ផ្តល់សិទ្ធិជា Admin និងបើកសិទ្ធិ <b>Delete Messages</b>។\n"
-            "បន្ទាប់មក បើកផ្ទាំងគ្រប់គ្រង (Dashboard) នេះឡើងវិញ ដើម្បីកែប្រែការការពារ។"
+            "បន្ទាប់មក សូមបើកផ្ទាំងគ្រប់គ្រង (Dashboard) នេះឡើងវិញ ដើម្បីកែប្រែការការពារ។"
         ),
         "group_card": (
             "━━━━━━━━━━━━━━━━━━━━\n"
@@ -1106,7 +1092,7 @@ INTERFACE_UPGRADE_TEXTS: dict[str, dict[str, str]] = {
             "🛡 ការការពារ៖ <b>{protection}</b>\n"
             "🔥 កម្រិតតឹងរ៉ឹង៖ <code>{strictness}</code>\n"
             "🔇 មុខងារស្ងាត់៖ <code>{silent}</code>\n"
-            "🤖 ចំណាត់ការស្វ័យប្រវត្តិ៖ <code>{auto_action}</code>\n"
+            "🤖 សកម្មភាពស្វ័យប្រវត្តិ៖ <code>{auto_action}</code>\n"
             "🔐 Hash ដែលទុកចិត្ត៖ <code>{trusted_hashes}</code>\n"
             "🧩 Format ដែលហាមឃាត់៖ <code>{custom_blocked}</code>\n"
             "✅ Format ដែលអនុញ្ញាត៖ <code>{allowed}</code>\n"
@@ -1121,7 +1107,7 @@ INTERFACE_UPGRADE_TEXTS: dict[str, dict[str, str]] = {
             "សិទ្ធិរបស់ Bot៖ <code>{bot_permission}</code>\n"
             "កម្រិតតឹងរ៉ឹង៖ <code>{strictness}</code>\n"
             "មុខងារស្ងាត់៖ <code>{silent}</code>\n"
-            "ចំណាត់ការស្វ័យប្រវត្តិ៖ <code>{auto_action}</code>\n\n"
+            "សកម្មភាពស្វ័យប្រវត្តិ៖ <code>{auto_action}</code>\n\n"
             "គន្លឹះ៖ គួរប្រើ <b>Standard</b> សម្រាប់ការប្រើប្រាស់ទូទៅ និង <b>High</b> សម្រាប់ក្រុមដែលទាមទារភាពតឹងរ៉ឹង។"
         ),
         "scanner_panel_title": "🧪 <b>មជ្ឈមណ្ឌល Scanner</b>\n💬 <b>{group}</b>\n━━━━━━━━━━━━━━━━━━━━\n{scanner}",
@@ -1129,24 +1115,24 @@ INTERFACE_UPGRADE_TEXTS: dict[str, dict[str, str]] = {
             "🩺 <b>ពិនិត្យសុខភាពក្រុម</b>\n"
             "💬 <b>{group}</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "Bot គឺជា Admin៖ {bot_admin}\n"
+            "Bot ជា Admin៖ {bot_admin}\n"
             "អាចលុបសារបាន៖ {can_delete}\n"
             "អាចកម្រិតសិទ្ធិសមាជិកបាន៖ {can_restrict}\n"
-            "បើកការការពារ៖ {protection}\n"
-            "បើក Scanner៖ {scanner}\n"
-            "Admin ដែលអាចទទួលសារជូនដំណឹង៖ <code>{ready}</code>/<code>{total}</code>\n\n"
+            "ការការពារបានបើក៖ {protection}\n"
+            "Scanner បានបើក៖ {scanner}\n"
+            "Admin ត្រៀមទទួលសារជូនដំណឹង៖ <code>{ready}</code>/<code>{total}</code>\n\n"
             "ការកំណត់ល្អបំផុត៖ Admin + Delete Messages + Restrict Members។"
         ),
-        "incidents_title": "🚨 <b>ប្រវត្តិករណីល្មើស (Incidents)</b>\n💬 <b>{group}</b>\nសរុប៖ <code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
+        "incidents_title": "🚨 <b>ប្រវត្តិល្មើស (Incident Center)</b>\n💬 <b>{group}</b>\nសរុប៖ <code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
         "member_risk_title": "👥 <b>សមាជិកដែលមានហានិភ័យ</b>\n💬 <b>{group}</b>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
-        "admin_alert_title": "👮 <b>ស្ថានភាពទទួលសារជូនដំណឹង Admin</b>\n💬 <b>{group}</b>\nអ្នកដែលរួចរាល់៖ <code>{ready}</code>/<code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}\n\n<i>Admin ត្រូវចុច /start ជាមួយ Bot ក្នុងសារឯកជនយ៉ាងហោចណាស់ម្តង ដើម្បីអាចទទួលបានសារជូនដំណឹង។</i>",
+        "admin_alert_title": "👮 <b>ស្ថានភាពទទួលសារជូនដំណឹង Admin</b>\n💬 <b>{group}</b>\nរួចរាល់៖ <code>{ready}</code>/<code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}\n\n<i>Admin ត្រូវចុច Start Bot ក្នុង Private Chat យ៉ាងហោចណាស់ម្តង ទើបអាចទទួលបានសារជូនដំណឹង។</i>",
         "auto_title": (
-            "🤖 <b>ច្បាប់ចំណាត់ការស្វ័យប្រវត្តិ</b>\n"
+            "🤖 <b>ច្បាប់សកម្មភាពស្វ័យប្រវត្តិ</b>\n"
             "💬 <b>{group}</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "ម៉ូដបច្ចុប្បន្ន៖ <code>{mode}</code>\n"
             "ចំនួនព្រមាន (Warn)៖ <code>{warn_threshold}</code>\n"
-            "ចំនួនបិទការបញ្ចេញមតិ (Mute)៖ <code>{mute_threshold}</code>\n"
+            "ចំនួនបិទមតិ (Mute)៖ <code>{mute_threshold}</code>\n"
             "ចំនួនបណ្ដេញចេញ (Ban)៖ <code>{ban_threshold}</code>\n"
             "រយៈពេល Mute៖ <code>{mute_minutes} នាទី</code>\n\n"
             "ណែនាំ៖ <b>Smart</b> (ព្រមានជាមុន, Mute អ្នកល្មើសដដែលៗ, ហើយ Ban អ្នកល្មើសធ្ងន់ធ្ងរ)។"
@@ -1176,14 +1162,14 @@ INTERFACE_BUTTON_TEXTS: dict[str, dict[str, str]] = {
         "btn_refresh_feedback": "🔄 Refresh Feedback",
         "feedback_prompt": (
             "💬 <b>Send Feedback</b>\n\n"
-            "Tell me what feels confusing, slow, missing, or difficult. You can write in Khmer or English.\n\n"
+            "Please let me know if anything feels confusing, slow, or missing. You can write in Khmer or English.\n\n"
             "Example: <code>The group settings page is hard to understand.</code>\n\n"
             "Send <code>/cancel</code> to cancel."
         ),
         "feedback_thanks": "✅ Thanks! Your feedback was saved and sent to the developer dashboard.",
         "feedback_empty": "No feedback has been submitted yet.",
         "feedback_cancelled": "✅ Feedback cancelled.",
-        "feedback_too_short": "❌ Please write a little more detail so the developer can understand the issue.",
+        "feedback_too_short": "❌ Please provide a little more detail so the developer can understand the issue.",
         "dev_feedback_title": "💬 <b>User Feedback</b>\nTotal: <code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
         "btn_scanner_center": "🧪 Scanner Center",
         "btn_health_check_short": "🩺 Health Check",
@@ -1212,14 +1198,14 @@ INTERFACE_BUTTON_TEXTS: dict[str, dict[str, str]] = {
         "btn_refresh_feedback": "🔄 Refresh Feedback",
         "feedback_prompt": (
             "💬 <b>ផ្ញើ Feedback</b>\n\n"
-            "សូមប្រាប់ថាផ្នែកណាពិបាកប្រើ យឺត ខ្វះមុខងារ ឬច្រឡំ។ អាចសរសេរជាខ្មែរ ឬ English។\n\n"
-            "ឧទាហរណ៍: <code>ទំព័រ group settings មើលទៅច្រឡំ។</code>\n\n"
-            "ផ្ញើ <code>/cancel</code> ដើម្បីបោះបង់។"
+            "សូមប្រាប់ពួកយើងប្រសិនបើផ្នែកណាមួយពិបាកប្រើ, យឺត, ខ្វះមុខងារ ឬមានភាពច្របូកច្របល់។ អ្នកអាចសរសេរជាភាសាខ្មែរ ឬ English ក៏បាន។\n\n"
+            "ឧទាហរណ៍: <code>ទំព័រ Group Settings មើលទៅរាងច្របូកច្របល់បន្តិច។</code>\n\n"
+            "ផ្ញើ <code>/cancel</code> ដើម្បីបោះបង់សកម្មភាពនេះ។"
         ),
-        "feedback_thanks": "✅ អរគុណ! Feedback របស់អ្នកត្រូវបានរក្សាទុកក្នុង Developer Dashboard។",
-        "feedback_empty": "មិនទាន់មាន feedback ទេ។",
-        "feedback_cancelled": "✅ បានបោះបង់ feedback។",
-        "feedback_too_short": "❌ សូមសរសេរលម្អិតបន្តិច ដើម្បីឱ្យ developer យល់បញ្ហា។",
+        "feedback_thanks": "✅ អរគុណ! Feedback របស់អ្នកត្រូវបានរក្សាទុកក្នុង Developer Dashboard រួចរាល់។",
+        "feedback_empty": "មិនទាន់មាន Feedback នៅឡើយទេ។",
+        "feedback_cancelled": "✅ បានបោះបង់ការផ្ញើ Feedback។",
+        "feedback_too_short": "❌ សូមសរសេរលម្អិតបន្តិច ដើម្បីឱ្យ Developer ងាយស្រួលយល់ពីបញ្ហា។",
         "dev_feedback_title": "💬 <b>User Feedback</b>\nសរុប: <code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
         "btn_scanner_center": "🧪 Scanner Center",
         "btn_health_check_short": "🩺 ពិនិត្យសុខភាព",
@@ -1241,11 +1227,6 @@ INTERFACE_BUTTON_TEXTS: dict[str, dict[str, str]] = {
 for _lang, _items in INTERFACE_BUTTON_TEXTS.items():
     TEXTS.setdefault(_lang, {}).update(_items)
 
-
-# ─────────────────────────────────────────────────────────────
-# ADMIN PANEL V4 UPGRADE
-# Cleaner group control center, admin action logs, health summary and safer UX.
-# ─────────────────────────────────────────────────────────────
 ADMIN_PANEL_V4_TEXTS: dict[str, dict[str, str]] = {
     "en": {
         "group_admin_title": (
@@ -1276,7 +1257,7 @@ ADMIN_PANEL_V4_TEXTS: dict[str, dict[str, str]] = {
         "admin_panel_tip": "💡 Tip: Keep <b>Smart Auto Action</b> ON for active groups and check <b>Health</b> after changing bot permissions.",
         "status_ready": "🟢 <b>Ready</b>: bot can protect this group.",
         "status_attention": "🟡 <b>Needs attention</b>: check bot permissions.",
-        "status_no_access": "🔴 <b>No access</b>: bot was removed or cannot read this group.",
+        "status_no_access": "🔴 <b>No access</b>: bot was removed or cannot read this chat.",
         "btn_quick_auto": "🤖 Auto Rules",
         "btn_quick_health": "🩺 Health",
     },
@@ -1287,29 +1268,29 @@ ADMIN_PANEL_V4_TEXTS: dict[str, dict[str, str]] = {
             "<code>{chat_id}</code>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "{health_status}\n"
-            "🛡 Protection: <b>{protection}</b>\n"
-            "🔥 Strictness: <code>{strictness}</code>\n"
-            "🔇 Silent mode: <code>{silent}</code>\n"
-            "🤖 Auto action: <code>{auto_action}</code>\n"
-            "👮 Admin alerts: <code>{admin_ready}</code>/<code>{admin_total}</code> ready\n"
-            "🚨 Open incidents: <code>{open_incidents}</code>\n"
+            "🛡 ការការពារ: <b>{protection}</b>\n"
+            "🔥 កម្រិតតឹងរ៉ឹង: <code>{strictness}</code>\n"
+            "🔇 មុខងារស្ងាត់: <code>{silent}</code>\n"
+            "🤖 សកម្មភាពស្វ័យប្រវត្តិ: <code>{auto_action}</code>\n"
+            "👮 Admin alerts: រួចរាល់ <code>{admin_ready}</code>/<code>{admin_total}</code>\n"
+            "🚨 ករណីកំពុងបើក: <code>{open_incidents}</code>\n"
             "📝 Admin logs: <code>{admin_logs}</code>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "🧪 Security: <code>{custom_blocked}</code> blocked · <code>{allowed}</code> allowed\n"
-            "🔐 Trusted hashes: <code>{trusted_hashes}</code>\n"
+            "🧪 សុវត្ថិភាព: Block <code>{custom_blocked}</code> · Allow <code>{allowed}</code>\n"
+            "🔐 Hash ដែលទុកចិត្ត: <code>{trusted_hashes}</code>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "ជ្រើស module ខាងក្រោម។ Settings សំខាន់ៗនៅខាងលើ។"
+            "ជ្រើសរើសជម្រើសខាងក្រោម។ ការកំណត់សំខាន់ៗត្រូវបានបង្ហាញនៅខាងលើ។"
         ),
         "btn_admin_logs": "📝 Admin Logs",
         "btn_refresh_admin_logs": "🔄 Refresh Admin Logs",
         "btn_clear_admin_logs": "🧹 Clear Admin Logs",
         "admin_logs_title": "📝 <b>Admin Action Logs</b>\n💬 <b>{group}</b>\nសរុប: <code>{total}</code>\n━━━━━━━━━━━━━━━━━━━━\n{items}",
-        "admin_logs_empty": "មិនទាន់មាន admin action log សម្រាប់ក្រុមនេះទេ។",
-        "admin_logs_cleared": "✅ បានសម្អាត admin action logs សម្រាប់ក្រុមនេះ។",
-        "admin_panel_tip": "💡 ណែនាំ: បើក <b>Smart Auto Action</b> សម្រាប់ក្រុម active ហើយពិនិត្យ <b>Health</b> បន្ទាប់ពីកែ permission។",
-        "status_ready": "🟢 <b>Ready</b>: bot អាចការពារក្រុមនេះបាន។",
-        "status_attention": "🟡 <b>ត្រូវពិនិត្យ</b>: សូមពិនិត្យ bot permissions។",
-        "status_no_access": "🔴 <b>No access</b>: bot ត្រូវបានដកចេញ ឬមិនអាចចូលក្រុមនេះ។",
+        "admin_logs_empty": "មិនទាន់មាន Admin Action Log សម្រាប់ក្រុមនេះទេ។",
+        "admin_logs_cleared": "✅ បានសម្អាត Admin action logs សម្រាប់ក្រុមនេះ។",
+        "admin_panel_tip": "💡 ណែនាំ: គួរប្រើប្រាស់ <b>Smart Auto Action</b> សម្រាប់ក្រុម Active និងកុំភ្លេចពិនិត្យ <b>Health</b> បន្ទាប់ពីកែប្រែ Permission។",
+        "status_ready": "🟢 <b>Ready</b>: Bot អាចការពារក្រុមនេះបាន។",
+        "status_attention": "🟡 <b>ត្រូវពិនិត្យ</b>: សូមពិនិត្យមើល Bot Permissions ឡើងវិញ។",
+        "status_no_access": "🔴 <b>No access</b>: Bot ត្រូវបានដកចេញ ឬមិនអាចចូលក្នុងក្រុមនេះបានទេ។",
         "btn_quick_auto": "🤖 Auto Rules",
         "btn_quick_health": "🩺 Health",
     },
