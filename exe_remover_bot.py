@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 import hashlib
 import hmac
+import inspect
 import io
 import json
 import logging
@@ -152,6 +154,9 @@ SUPABASE_AUTOSAVE_MIN_INTERVAL_SECONDS = _env_float(
 MAX_CONCURRENT_UPDATES = _env_int("MAX_CONCURRENT_UPDATES", 8, min_value=1, max_value=64)
 TELEGRAM_CONNECTION_POOL_SIZE = _env_int("TELEGRAM_CONNECTION_POOL_SIZE", 32, min_value=8, max_value=256)
 TELEGRAM_POOL_TIMEOUT = _env_float("TELEGRAM_POOL_TIMEOUT", 10.0, min_value=1.0)
+TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES = 20_971_520
+SILENT_MODE_NOTICE_DELETE_SECONDS = _env_int("SILENT_MODE_NOTICE_DELETE_SECONDS", 12, min_value=5, max_value=60)
+STRICT_ENFORCEMENT_ON_ADMINS_DEFAULT = _env_bool("STRICT_ENFORCEMENT_ON_ADMINS", False)
 ADMIN_CACHE_TTL_SECONDS = _env_int("ADMIN_CACHE_TTL_SECONDS", 180, min_value=5)
 BOT_MEMBER_CACHE_TTL_SECONDS = _env_int("BOT_MEMBER_CACHE_TTL_SECONDS", 60, min_value=5)
 # When Telegram says the bot was kicked/removed from a group, suppress repeated
@@ -269,6 +274,8 @@ SUPABASE_AVAILABLE = False
 SUPABASE_LAST_SAVE_MONOTONIC = 0.0
 SUPABASE_LAST_SAVE_UTC = "never"
 PENDING_MEMORY_SAVE_TASKS: set[asyncio.Task[Any]] = set()
+GROUPS_PANEL_PAGE_SIZE = _env_int("GROUPS_PANEL_PAGE_SIZE", 8, min_value=5, max_value=10)
+DESTRUCTIVE_CONFIRM_ACTIONS = {"clear", "clear_incidents", "clear_admin_logs"}
 
 
 @dataclass(slots=True)
@@ -296,10 +303,19 @@ class FileScanResult:
     file_sha256: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class SendMessageResult:
+    ok: bool
+    message_id: int | None = None
+    error: str = ""
+    error_type: str = ""
+    permission_error: bool = False
+    retryable: bool = False
+
+
 # ─────────────────────────────────────────────────────────────
 # TRANSLATIONS - HTML parse mode, not Markdown
 # ─────────────────────────────────────────────────────────────
-from typing import Any
 
 TEXTS: dict[str, dict[str, str]] = {
     "en": {
@@ -404,6 +420,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "Last Redis save: <code>{redis_last_save}</code>"
         ),
         "unknown_error": "Something went wrong. Please try again.",
+        "silent_notice_auto_delete": "\n<i>This notice will auto-delete shortly.</i>",
     },
     "km": {
         "select_lang": "🌐 Please choose your preferred language / សូមជ្រើសរើសភាសារបស់អ្នក៖",
@@ -507,6 +524,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "Redis save ចុងក្រោយ: <code>{redis_last_save}</code>"
         ),
         "unknown_error": "មានបញ្ហាបច្ចេកទេស។ សូមព្យាយាមម្តងទៀត។",
+        "silent_notice_auto_delete": "\n<i>សារជូនដំណឹងនេះនឹងលុបដោយស្វ័យប្រវត្តិក្នុងពេលបន្តិចទៀត។</i>",
     },
 }
 
@@ -1155,6 +1173,19 @@ INTERFACE_BUTTON_TEXTS: dict[str, dict[str, str]] = {
         "btn_open_groups": "👥 Open My Groups",
         "btn_refresh_dashboard": "🔄 Refresh Dashboard",
         "btn_refresh_groups": "🔄 Refresh Groups",
+        "btn_confirm_yes": "✅ Yes, clear all",
+        "btn_confirm_no": "❌ No, cancel",
+        "confirm_cancelled": "✅ Action cancelled.",
+        "confirm_clear_title": (
+            "⚠️ <b>Confirm destructive action</b>\n\n"
+            "{summary}\n\n"
+            "This action cannot be undone."
+        ),
+        "confirm_clear_formats": "Clear all custom delete formats for <b>{group}</b>?",
+        "confirm_clear_allowed": "Clear the allowed-format list for <b>{group}</b>?",
+        "confirm_clear_hashes": "Clear all trusted file hashes for <b>{group}</b>?",
+        "confirm_clear_incidents": "Clear all handled incident logs for <b>{group}</b>?",
+        "confirm_clear_admin_logs": "Clear all admin action logs for <b>{group}</b>?",
         "btn_refresh_incidents": "🔄 Refresh Incidents",
         "btn_refresh_developer": "🔄 Refresh Developer Dashboard",
         "btn_feedback": "💬 Send Feedback",
@@ -1191,6 +1222,19 @@ INTERFACE_BUTTON_TEXTS: dict[str, dict[str, str]] = {
         "btn_open_groups": "👥 បើកក្រុមរបស់ខ្ញុំ",
         "btn_refresh_dashboard": "🔄 Refresh Dashboard",
         "btn_refresh_groups": "🔄 Refresh ក្រុម",
+        "btn_confirm_yes": "✅ បាទ/ចាស លុបទាំងអស់",
+        "btn_confirm_no": "❌ ទេ បោះបង់",
+        "confirm_cancelled": "✅ បានបោះបង់សកម្មភាព។",
+        "confirm_clear_title": (
+            "⚠️ <b>បញ្ជាក់សកម្មភាពលុប</b>\n\n"
+            "{summary}\n\n"
+            "សកម្មភាពនេះមិនអាចត្រឡប់ក្រោយបានទេ។"
+        ),
+        "confirm_clear_formats": "លុប Custom Delete Formats ទាំងអស់សម្រាប់ <b>{group}</b>?",
+        "confirm_clear_allowed": "លុប Allowed Formats ទាំងអស់សម្រាប់ <b>{group}</b>?",
+        "confirm_clear_hashes": "លុប Trusted File Hashes ទាំងអស់សម្រាប់ <b>{group}</b>?",
+        "confirm_clear_incidents": "លុប Incident Logs ដែលបានចាត់ការរួចសម្រាប់ <b>{group}</b>?",
+        "confirm_clear_admin_logs": "លុប Admin Action Logs ទាំងអស់សម្រាប់ <b>{group}</b>?",
         "btn_refresh_incidents": "🔄 Refresh Incidents",
         "btn_refresh_developer": "🔄 Refresh Developer Dashboard",
         "btn_feedback": "💬 ផ្ញើ Feedback",
@@ -1302,6 +1346,7 @@ DEFAULT_GROUP_SETTINGS: dict[str, Any] = {
     "protection_enabled": True,
     "strictness": "standard",  # standard=.exe/PE only, high=all dangerous extensions, strict=high + archive-risk focus
     "silent_mode": False,
+    "strict_enforcement_on_admins": STRICT_ENFORCEMENT_ON_ADMINS_DEFAULT,
     "allowed_extensions": [],
     "custom_blocked_extensions": [],
     "trusted_file_hashes": [],
@@ -1463,6 +1508,100 @@ def storage_backend_label() -> str:
     if LOCAL_PERSISTENCE_ENABLED:
         backends.append("local")
     return "+".join(backends) if backends else "memory-only"
+
+
+def prepare_local_persistence_file(path: str) -> None:
+    """Create the parent folder for PicklePersistence before PTB opens it.
+
+    Render deploys often use relative paths, but custom PERSISTENCE_FILE values
+    such as /data/exe_bot_data.pickle or state/exe_bot_data.pickle fail if the
+    parent folder does not exist. Creating it here prevents a boot-time crash.
+    """
+    if not path:
+        return
+    try:
+        parent = os.path.dirname(os.path.abspath(path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+    except OSError:
+        logger.exception("Could not prepare persistence directory for %r", path, exc_info=True)
+        raise
+
+
+class ThreadedPicklePersistence(PicklePersistence):
+    """PicklePersistence wrapper that moves blocking pickle/file IO off the PTB event loop.
+
+    PTB persistence methods are async in modern releases, but the default
+    PicklePersistence still performs synchronous pickle load/dump work inside
+    those coroutines.  For large local state files this can freeze update
+    handling.  This adapter serializes persistence calls and runs the base
+    implementation in a worker thread, preserving the local-pickle fallback
+    without blocking the bot loop.
+    """
+
+    __slots__ = ("_file_io_lock",)
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._file_io_lock = asyncio.Lock()
+
+    async def _call_base_in_thread(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        async with self._file_io_lock:
+            def runner() -> Any:
+                method = getattr(super(ThreadedPicklePersistence, self), method_name)
+                result = method(*args, **kwargs)
+                if inspect.isawaitable(result):
+                    return asyncio.run(result)
+                return result
+            return await asyncio.to_thread(runner)
+
+    async def get_user_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("get_user_data", *args, **kwargs)
+
+    async def get_chat_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("get_chat_data", *args, **kwargs)
+
+    async def get_bot_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("get_bot_data", *args, **kwargs)
+
+    async def get_callback_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("get_callback_data", *args, **kwargs)
+
+    async def get_conversations(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("get_conversations", *args, **kwargs)
+
+    async def update_user_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("update_user_data", *args, **kwargs)
+
+    async def update_chat_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("update_chat_data", *args, **kwargs)
+
+    async def update_bot_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("update_bot_data", *args, **kwargs)
+
+    async def update_callback_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("update_callback_data", *args, **kwargs)
+
+    async def update_conversation(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("update_conversation", *args, **kwargs)
+
+    async def drop_chat_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("drop_chat_data", *args, **kwargs)
+
+    async def drop_user_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("drop_user_data", *args, **kwargs)
+
+    async def refresh_user_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("refresh_user_data", *args, **kwargs)
+
+    async def refresh_chat_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("refresh_chat_data", *args, **kwargs)
+
+    async def refresh_bot_data(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("refresh_bot_data", *args, **kwargs)
+
+    async def flush(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._call_base_in_thread("flush", *args, **kwargs)
 
 
 def export_bot_data_for_storage(bot_data: dict[str, Any]) -> dict[str, Any]:
@@ -2414,8 +2553,8 @@ def scan_file_bytes(file_name: str, mime_type: str, data: bytes) -> FileScanResu
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 names = zf.namelist()[:MAX_ARCHIVE_MEMBERS_TO_SCAN]
-        except (zipfile.BadZipFile, RuntimeError, OSError, Exception):
-            logger.exception("Archive scan skipped for %r", file_name, exc_info=True)
+        except (zipfile.BadZipFile, RuntimeError, OSError):
+            logger.info("Archive scan skipped for non-readable ZIP file %r", file_name)
             return None
 
         for member in names:
@@ -2439,12 +2578,52 @@ def scan_file_bytes(file_name: str, mime_type: str, data: bytes) -> FileScanResu
     return None
 
 
-async def _download_document_bytes_for_scanner(context: ContextTypes.DEFAULT_TYPE, document: Any, *, file_name: str, file_size: int) -> bytes | None:
+async def _download_document_bytes_for_scanner(
+    context: ContextTypes.DEFAULT_TYPE,
+    document: Any,
+    *,
+    file_name: str,
+    file_size: int,
+    max_bytes: int | None = None,
+) -> bytes | None:
+    """Download a Telegram document only when it stays inside the active scanner limit."""
+    limit = min(int(max_bytes or max(file_size, 1)), TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES)
+    if file_size <= 0:
+        logger.warning("Scanner download skipped; missing Telegram file_size file_name=%r", file_name)
+        return None
+    if file_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
+        logger.warning(
+            "Scanner download skipped; Telegram Bot API file-size limit exceeded file_name=%r size=%s limit=%s",
+            file_name,
+            file_size,
+            TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES,
+        )
+        return None
+    if file_size > limit:
+        logger.info("Scanner download skipped; metadata size exceeds active limit file_name=%r size=%s limit=%s", file_name, file_size, limit)
+        return None
+
     for attempt in (1, 2):
         try:
             async with SCAN_DOWNLOAD_SEMAPHORE:
                 tg_file = await context.bot.get_file(document.file_id)
-                return bytes(await tg_file.download_as_bytearray())
+                actual_size = int(getattr(tg_file, "file_size", 0) or file_size or 0)
+                if actual_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
+                    logger.warning(
+                        "Scanner download skipped; get_file reported size above Bot API limit file_name=%r size=%s limit=%s",
+                        file_name,
+                        actual_size,
+                        TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES,
+                    )
+                    return None
+                if actual_size > 0 and actual_size > limit:
+                    logger.info("Scanner download skipped; Telegram file size exceeds active limit file_name=%r size=%s limit=%s", file_name, actual_size, limit)
+                    return None
+                data = bytes(await tg_file.download_as_bytearray())
+                if len(data) > limit:
+                    logger.warning("Scanner download discarded; downloaded bytes exceed limit file_name=%r bytes=%s limit=%s", file_name, len(data), limit)
+                    return None
+                return data
         except RetryAfter as exc:
             if attempt == 1 and await _sleep_for_retry_after(exc, operation="scanner_download"):
                 continue
@@ -2471,11 +2650,19 @@ async def scan_document(context: ContextTypes.DEFAULT_TYPE, document: Any, *, ch
         return FileScanResult(False, "scanner_error", "scanner skipped after filename parser error", (), file_name, mime_type)
 
     file_size = int(getattr(document, "file_size", 0) or 0)
+    if file_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
+        logger.warning(
+            "Scanner byte/hash analysis disabled; document exceeds Telegram Bot API download limit file_name=%r size=%s limit=%s",
+            file_name,
+            file_size,
+            TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES,
+        )
     can_download_for_hash = bool(
         trusted_hash_whitelist_enabled(context.bot_data)
         and chat_id is not None
         and file_size > 0
         and file_size <= trusted_hash_max_download_bytes(context.bot_data)
+        and file_size <= TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES
     )
     can_download_for_magic = bool(
         SUSPICIOUS_SCANNER_ENABLED
@@ -2483,6 +2670,7 @@ async def scan_document(context: ContextTypes.DEFAULT_TYPE, document: Any, *, ch
         and SCANNER_MAX_DOWNLOAD_BYTES > 0
         and file_size > 0
         and file_size <= SCANNER_MAX_DOWNLOAD_BYTES
+        and file_size <= TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES
     )
 
     if result.blocked and not can_download_for_hash:
@@ -2490,11 +2678,15 @@ async def scan_document(context: ContextTypes.DEFAULT_TYPE, document: Any, *, ch
     if not (can_download_for_hash or can_download_for_magic):
         return result
 
-    data = await _download_document_bytes_for_scanner(context, document, file_name=file_name, file_size=file_size)
+    download_limit = max(
+        trusted_hash_max_download_bytes(context.bot_data) if can_download_for_hash else 0,
+        SCANNER_MAX_DOWNLOAD_BYTES if can_download_for_magic else 0,
+    )
+    data = await _download_document_bytes_for_scanner(context, document, file_name=file_name, file_size=file_size, max_bytes=download_limit)
     if data is None:
         return result
 
-    file_sha256 = calculate_file_hash(data)
+    file_sha256 = await calculate_file_hash_async(data)
     result = replace(result, file_sha256=file_sha256, details=tuple([*result.details, f"sha256:{file_sha256}"]))
 
     if chat_id is not None:
@@ -2519,7 +2711,7 @@ async def scan_document(context: ContextTypes.DEFAULT_TYPE, document: Any, *, ch
 
     if can_download_for_magic:
         try:
-            magic_result = scan_file_bytes(result.file_name, result.mime_type, data)
+            magic_result = await scan_file_bytes_async(result.file_name, result.mime_type, data)
             if magic_result is not None:
                 return replace(magic_result, file_sha256=file_sha256, details=tuple([*magic_result.details, f"sha256:{file_sha256}"]))
             return result
@@ -2571,14 +2763,44 @@ async def _sleep_for_retry_after(exc: RetryAfter, *, operation: str) -> bool:
     return True
 
 
-async def safe_send_message(
+async def safe_answer_callback(query: Any, text: str | None = None, *, show_alert: bool = False) -> None:
+    """Answer callback queries immediately without blocking heavy callback flows.
+
+    Callback acknowledgements clear Telegram's mobile loading spinner.  This
+    helper must not sleep/retry on RetryAfter because callbacks call it before
+    permission checks, cache refreshes, and persistence scheduling.
+    """
+    if query is None:
+        return
+    try:
+        await query.answer(text=text, show_alert=show_alert)
+    except RetryAfter as exc:
+        delay = float(getattr(exc, "retry_after", 0) or 0)
+        logger.warning(
+            "Callback answer rate-limited retry_after=%.2fs; skipping retry to keep callback responsive",
+            delay,
+            exc_info=True,
+        )
+    except BadRequest as exc:
+        # Stale callbacks are common when an old inline keyboard is tapped.
+        lowered = str(exc).casefold()
+        if "query is too old" not in lowered and "query_id_invalid" not in lowered:
+            logger.debug("callback answer skipped: %s", exc)
+    except TelegramError:
+        logger.debug("callback answer failed", exc_info=True)
+    except Exception:
+        logger.exception("Unexpected callback answer failure", exc_info=True)
+
+
+async def safe_send_message_result(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
     text: str,
     *,
     reply_markup: InlineKeyboardMarkup | None = None,
     disable_web_page_preview: bool = True,
-) -> int | None:
+    operation: str = "send_message",
+) -> SendMessageResult:
     for attempt in (1, 2):
         try:
             sent = await context.bot.send_message(
@@ -2588,26 +2810,96 @@ async def safe_send_message(
                 reply_markup=reply_markup,
                 disable_web_page_preview=disable_web_page_preview,
             )
-            return int(sent.message_id)
+            return SendMessageResult(ok=True, message_id=int(sent.message_id))
         except RetryAfter as exc:
-            if attempt == 1 and await _sleep_for_retry_after(exc, operation="send_message"):
+            if attempt == 1 and await _sleep_for_retry_after(exc, operation=operation):
                 continue
-            return None
-        except Forbidden:
-            return None
-        except BadRequest:
-            logger.exception("send_message BadRequest chat_id=%s", chat_id, exc_info=True)
-            return None
-        except TimedOut:
-            logger.exception("send_message timed out chat_id=%s", chat_id, exc_info=True)
-            return None
-        except TelegramError:
-            logger.exception("send_message failed chat_id=%s", chat_id, exc_info=True)
-            return None
-        except Exception:
-            logger.exception("Unexpected send_message failure chat_id=%s", chat_id, exc_info=True)
-            return None
-    return None
+            return SendMessageResult(
+                ok=False,
+                error=f"Telegram rate limit exceeded for {operation}",
+                error_type="retry_after",
+                retryable=True,
+            )
+        except Forbidden as exc:
+            logger.warning("%s forbidden chat_id=%s: %s", operation, chat_id, exc)
+            return SendMessageResult(
+                ok=False,
+                error=str(exc),
+                error_type="forbidden",
+                permission_error=True,
+            )
+        except BadRequest as exc:
+            logger.exception("%s BadRequest chat_id=%s", operation, chat_id, exc_info=True)
+            return SendMessageResult(ok=False, error=str(exc), error_type="bad_request")
+        except TimedOut as exc:
+            logger.exception("%s timed out chat_id=%s", operation, chat_id, exc_info=True)
+            return SendMessageResult(ok=False, error=str(exc), error_type="timed_out", retryable=True)
+        except TelegramError as exc:
+            logger.exception("%s failed chat_id=%s", operation, chat_id, exc_info=True)
+            return SendMessageResult(ok=False, error=str(exc), error_type="telegram_error")
+        except Exception as exc:
+            logger.exception("Unexpected %s failure chat_id=%s", operation, chat_id, exc_info=True)
+            return SendMessageResult(ok=False, error=str(exc), error_type="unexpected")
+    return SendMessageResult(ok=False, error="unknown send failure", error_type="unknown")
+
+
+async def safe_send_message(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    text: str,
+    *,
+    reply_markup: InlineKeyboardMarkup | None = None,
+    disable_web_page_preview: bool = True,
+) -> int | None:
+    result = await safe_send_message_result(
+        context,
+        chat_id,
+        text,
+        reply_markup=reply_markup,
+        disable_web_page_preview=disable_web_page_preview,
+    )
+    return result.message_id if result.ok else None
+
+
+async def auto_delete_message_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    data = context.job.data if context.job else {}
+    if not isinstance(data, dict):
+        return
+    try:
+        chat_id = int(data.get("chat_id"))
+        message_id = int(data.get("message_id"))
+    except (TypeError, ValueError):
+        return
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except BadRequest as exc:
+        text = str(exc).casefold()
+        if "message to delete not found" not in text and "message can't be deleted" not in text:
+            logger.info("Auto-delete notice failed chat_id=%s message_id=%s: %s", chat_id, message_id, exc)
+    except (Forbidden, TimedOut, TelegramError) as exc:
+        logger.info("Auto-delete notice skipped chat_id=%s message_id=%s: %s", chat_id, message_id, exc)
+    except Exception:
+        logger.exception("Unexpected auto-delete notice failure chat_id=%s message_id=%s", chat_id, message_id, exc_info=True)
+
+
+def schedule_auto_delete_message(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    chat_id: int,
+    message_id: int | None,
+    delay_seconds: int = SILENT_MODE_NOTICE_DELETE_SECONDS,
+) -> None:
+    if not message_id:
+        return
+    if not context.application.job_queue:
+        logger.warning("JobQueue unavailable; cannot auto-delete silent-mode notice chat_id=%s message_id=%s", chat_id, message_id)
+        return
+    context.application.job_queue.run_once(
+        auto_delete_message_job,
+        when=max(1, int(delay_seconds)),
+        data={"chat_id": int(chat_id), "message_id": int(message_id)},
+        name=f"auto_delete_notice:{int(chat_id)}:{int(message_id)}",
+    )
 
 
 async def safe_reply(update: Update, text: str, *, reply_markup: InlineKeyboardMarkup | None = None) -> None:
@@ -3389,6 +3681,16 @@ def calculate_file_hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+async def calculate_file_hash_async(data: bytes) -> str:
+    """Run SHA256 hashing outside the event loop for high-traffic downloads."""
+    return await asyncio.to_thread(calculate_file_hash, data)
+
+
+async def scan_file_bytes_async(file_name: str, mime_type: str, data: bytes) -> FileScanResult | None:
+    """Run magic-byte and ZIP member analysis outside the event loop."""
+    return await asyncio.to_thread(scan_file_bytes, file_name, mime_type, data)
+
+
 def short_hash(value: str, *, length: int = 12) -> str:
     digest = normalize_sha256_hash(value)
     return digest[:length] if digest else ""
@@ -3500,6 +3802,7 @@ def get_group_settings(bot_data: dict[str, Any], chat_id: int) -> dict[str, Any]
     settings["trusted_file_hashes"] = _dedupe_valid_hashes(settings.get("trusted_file_hashes", []), limit=max_trusted_file_hashes(bot_data))
     settings["protection_enabled"] = bool(settings.get("protection_enabled", True))
     settings["silent_mode"] = bool(settings.get("silent_mode", False))
+    settings["strict_enforcement_on_admins"] = bool(settings.get("strict_enforcement_on_admins", STRICT_ENFORCEMENT_ON_ADMINS_DEFAULT))
     return settings
 
 def _on_off(bot_data: dict[str, Any], user_id: int | None, enabled: bool, *, key_on: str = "protection_on", key_off: str = "protection_off") -> str:
@@ -3805,7 +4108,7 @@ def callback_is_private(query: Any) -> bool:
 
 async def reject_group_config_callback(query: Any, bot_data: dict[str, Any], user_id: int) -> None:
     try:
-        await query.answer(tr(bot_data, user_id, "config_private_only"), show_alert=True)
+        await safe_answer_callback(query, text=tr(bot_data, user_id, "config_private_only"), show_alert=True)
     except TelegramError as exc:
         logger.exception("Could not answer private-only callback warning", exc_info=True)
 
@@ -3857,21 +4160,35 @@ async def save_user_feedback(context: ContextTypes.DEFAULT_TYPE, user: Any, text
         await persist_context_memory(context, reason="user_feedback_saved", force=True, caller_holds_lock=True)
 
 
-async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
-    async with BOT_DATA_LOCK:
-        groups = get_groups(context.bot_data, user_id)
+async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, page: int = 0) -> None:
+    # Keep this function free of re-entrant BOT_DATA_LOCK deadlocks.  The
+    # dashboard is rendered from synchronous snapshots; only state mutation and
+    # default hydration are protected, and no await happens inside lock scopes.
+    groups = get_groups(context.bot_data, user_id)
 
     if int(user_id) not in BOT_OWNER_IDS and groups:
         checks = await asyncio.gather(
             *(is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=False) for chat_id in groups),
             return_exceptions=True,
         )
-        authorized_groups = [chat_id for chat_id, ok in zip(groups, checks) if ok is True]
+        authorized_groups: list[int] = []
+        for chat_id, check_result in zip(groups, checks):
+            if check_result is True:
+                authorized_groups.append(chat_id)
+            elif isinstance(check_result, Exception):
+                logger.warning(
+                    "Suppressed dashboard admin check failed user_id=%s chat_id=%s error=%r",
+                    user_id,
+                    chat_id,
+                    check_result,
+                    exc_info=(type(check_result), check_result, check_result.__traceback__),
+                )
+
         if len(authorized_groups) != len(groups):
             async with BOT_DATA_LOCK:
                 state = get_user_state(context.bot_data, user_id)
                 state["groups"] = authorized_groups
-                await persist_context_memory(context, reason="dashboard_admin_prune", force=True, caller_holds_lock=True)
+            await persist_context_memory(context, reason="dashboard_admin_prune", force=True)
         groups = authorized_groups
 
     if not groups:
@@ -3886,45 +4203,65 @@ async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
         await send_or_edit_panel(update, tr(context.bot_data, user_id, "groups_empty"), kb)
         return
 
-    rows: list[list[InlineKeyboardButton]] = []
+    total = len(groups)
+    pages = max(1, (total + GROUPS_PANEL_PAGE_SIZE - 1) // GROUPS_PANEL_PAGE_SIZE)
+    page = min(max(0, int(page or 0)), pages - 1)
+    page_groups = groups[page * GROUPS_PANEL_PAGE_SIZE:(page + 1) * GROUPS_PANEL_PAGE_SIZE]
+
+    group_cards: list[dict[str, Any]] = []
+    async with BOT_DATA_LOCK:
+        for chat_id in page_groups:
+            title = get_chat_title_from_state(context.bot_data, chat_id)
+            perms = get_bot_member_from_state(context.bot_data, chat_id)
+            permission = _permission_badge(perms)
+            settings = dict(get_group_settings(context.bot_data, chat_id))
+            protection = _ui_state_badge(bool(settings.get("protection_enabled", True)))
+            if is_chat_api_suppressed(context.bot_data, chat_id):
+                permission = "🔴 Permission: bot cannot access this group"
+            group_cards.append(
+                {
+                    "chat_id": int(chat_id),
+                    "title": str(title),
+                    "permission": str(permission),
+                    "protection": str(protection),
+                    "strictness": str(settings.get("strictness", "standard")),
+                    "silent": bool(settings.get("silent_mode", False)),
+                    "button_prefix": _group_button_status(context.bot_data, chat_id),
+                }
+            )
+
     lines = [tr(context.bot_data, user_id, "groups_title")]
-    sem = asyncio.Semaphore(5)
+    if pages > 1:
+        lines.append(f"Page <code>{page + 1}</code>/<code>{pages}</code> · Total <code>{total}</code>")
 
-    async def describe_group(chat_id: int) -> tuple[int, str, str, str]:
-        async with sem:
-            async with BOT_DATA_LOCK:
-                title = get_chat_title_from_state(context.bot_data, chat_id)
-                perms = get_bot_member_from_state(context.bot_data, chat_id)
-                permission = _permission_badge(perms)
-                settings = dict(get_group_settings(context.bot_data, chat_id))
-                protection = _ui_state_badge(bool(settings.get("protection_enabled", True)))
-                if is_chat_api_suppressed(context.bot_data, chat_id):
-                    permission = "🔴 Permission: bot cannot access this group"
-                card = tr(
-                    context.bot_data,
-                    user_id,
-                    "group_card",
-                    group=h(title),
-                    permission=h(permission),
-                    protection=h(protection),
-                    strictness=_strictness_label(context.bot_data, user_id, str(settings.get("strictness", "standard"))),
-                    silent=_on_off(context.bot_data, user_id, bool(settings.get("silent_mode")), key_on="silent_on", key_off="silent_off"),
-                )
-                button_prefix = _group_button_status(context.bot_data, chat_id)
-            return chat_id, title, card, button_prefix
-
-    described = await asyncio.gather(*(describe_group(chat_id) for chat_id in groups), return_exceptions=True)
-    for item in described:
-        if isinstance(item, Exception):
-            logger.exception("Group dashboard render failed", exc_info=(type(item), item, item.__traceback__))
-            continue
-        chat_id, title, card, button_prefix = item
+    rows: list[list[InlineKeyboardButton]] = []
+    for item in group_cards:
+        title = item["title"]
+        card = tr(
+            context.bot_data,
+            user_id,
+            "group_card",
+            group=h(title),
+            permission=h(item["permission"]),
+            protection=h(item["protection"]),
+            strictness=h(_strictness_label(context.bot_data, user_id, item["strictness"])),
+            silent=h(_on_off(context.bot_data, user_id, item["silent"], key_on="silent_on", key_off="silent_off")),
+        )
         lines.append(card)
-        rows.append([InlineKeyboardButton(f"{button_prefix} {_safe_button_title(title)}", callback_data=f"grp:{chat_id}")])
+        rows.append([InlineKeyboardButton(f"{item['button_prefix']} {_safe_button_title(title)}", callback_data=f"grp:{item['chat_id']}")])
 
-    rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh_groups"), callback_data="nav:groups")])
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(tr(context.bot_data, user_id, "btn_prev"), callback_data=f"nav:groups:{page - 1}"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton(tr(context.bot_data, user_id, "btn_next"), callback_data=f"nav:groups:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh_groups"), callback_data=f"nav:groups:{page}")])
     rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")])
+
     await send_or_edit_panel(update, "\n\n".join(lines), InlineKeyboardMarkup(rows))
+
 
 def group_settings_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
     settings = get_group_settings(bot_data, chat_id)
@@ -4223,6 +4560,31 @@ async def render_trusted_hash_panel(update: Update, context: ContextTypes.DEFAUL
         keyboard = remove_trusted_hash_keyboard(context.bot_data, user_id, chat_id) if remove_mode else trusted_hash_manager_keyboard(context.bot_data, user_id, chat_id)
     if notice:
         text = f"{notice}\n\n{text}"
+    await send_or_edit_panel(update, text, keyboard)
+
+
+def destructive_confirm_keyboard(bot_data: dict[str, Any], user_id: int, yes_callback: str, no_callback: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(tr(bot_data, user_id, "btn_confirm_yes"), callback_data=yes_callback)],
+        [InlineKeyboardButton(tr(bot_data, user_id, "btn_confirm_no"), callback_data=no_callback)],
+    ])
+
+
+async def render_destructive_confirmation(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    chat_id: int,
+    *,
+    summary_key: str,
+    yes_callback: str,
+    no_callback: str,
+) -> None:
+    async with BOT_DATA_LOCK:
+        title = get_chat_title_from_state(context.bot_data, chat_id)
+        summary = tr(context.bot_data, user_id, summary_key, group=h(title))
+        text = tr(context.bot_data, user_id, "confirm_clear_title", summary=summary)
+        keyboard = destructive_confirm_keyboard(context.bot_data, user_id, yes_callback, no_callback)
     await send_or_edit_panel(update, text, keyboard)
 
 
@@ -4857,7 +5219,7 @@ async def navigation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await query.answer()
+    await safe_answer_callback(query)
     data = query.data or ""
     if data == "nav:home":
         await clear_pending_format_edit(context, user_id)
@@ -4876,10 +5238,17 @@ async def navigation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not await is_admin_or_owner(context, user_id, allow_api=False):
         await safe_edit_query(query, tr(context.bot_data, user_id, "access_denied"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
         return
-    if data == "nav:groups":
+    if data.startswith("nav:groups"):
         await clear_pending_format_edit(context, user_id)
         await clear_pending_user_feedback(context, user_id)
-        await render_groups_panel(update, context, user_id)
+        page = 0
+        parts = data.split(":")
+        if len(parts) >= 3:
+            try:
+                page = int(parts[2])
+            except ValueError:
+                page = 0
+        await render_groups_panel(update, context, user_id, page=page)
     else:
         await clear_pending_format_edit(context, user_id)
         await clear_pending_user_feedback(context, user_id)
@@ -4894,7 +5263,7 @@ async def developer_dashboard_callback(update: Update, context: ContextTypes.DEF
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await query.answer()
+    await safe_answer_callback(query)
     if not _dev_is_owner(user_id):
         await safe_edit_query(query, tr(context.bot_data, user_id, "dev_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
         return
@@ -4965,7 +5334,7 @@ async def group_dashboard_callback(update: Update, context: ContextTypes.DEFAULT
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await query.answer()
+    await safe_answer_callback(query)
     data = query.data or ""
     chat_id = _safe_chat_id_from_payload(data)
     if chat_id is None:
@@ -4987,7 +5356,7 @@ async def group_settings_callback(update: Update, context: ContextTypes.DEFAULT_
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await query.answer()
+    await safe_answer_callback(query)
     data = query.data or ""
     parts = data.split(":", 2)
     if len(parts) != 3:
@@ -5040,7 +5409,7 @@ async def format_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await query.answer()
+    await safe_answer_callback(query)
     data = query.data or ""
     parts = data.split(":", 2)
     if len(parts) != 3:
@@ -5075,6 +5444,17 @@ async def format_manager_callback(update: Update, context: ContextTypes.DEFAULT_
         await render_format_manager_panel(update, context, user_id, chat_id, remove_mode=True)
         return
     if action == "clear":
+        await render_destructive_confirmation(
+            update,
+            context,
+            user_id,
+            chat_id,
+            summary_key="confirm_clear_formats",
+            yes_callback=f"gfmt:{chat_id}:clear_yes",
+            no_callback=f"gfmt:{chat_id}:menu",
+        )
+        return
+    if action == "clear_yes":
         async with BOT_DATA_LOCK:
             settings = get_group_settings(context.bot_data, chat_id)
             settings["custom_blocked_extensions"] = []
@@ -5093,7 +5473,7 @@ async def delete_format_callback(update: Update, context: ContextTypes.DEFAULT_T
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await query.answer()
+    await safe_answer_callback(query)
     data = query.data or ""
     parts = data.split(":", 2)
     if len(parts) != 3:
@@ -5128,7 +5508,7 @@ async def allowed_formats_callback(update: Update, context: ContextTypes.DEFAULT
     user_id = query.from_user.id
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id); return
-    await query.answer()
+    await safe_answer_callback(query)
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3:
         await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
@@ -5150,6 +5530,8 @@ async def allowed_formats_callback(update: Update, context: ContextTypes.DEFAULT
             await render_allowed_manager_panel(update, context, user_id, chat_id, notice=tr(context.bot_data, user_id, "formats_empty")); return
         await render_allowed_manager_panel(update, context, user_id, chat_id, remove_mode=True); return
     if action == "clear":
+        await render_destructive_confirmation(update, context, user_id, chat_id, summary_key="confirm_clear_allowed", yes_callback=f"gallow:{chat_id}:clear_yes", no_callback=f"gallow:{chat_id}:menu"); return
+    if action == "clear_yes":
         async with BOT_DATA_LOCK:
             settings = get_group_settings(context.bot_data, chat_id); settings["allowed_extensions"] = []
             await persist_context_memory(context, reason="allowed_formats_clear", force=True, caller_holds_lock=True)
@@ -5162,7 +5544,7 @@ async def delete_allowed_format_callback(update: Update, context: ContextTypes.D
     if not query or not query.from_user: return
     user_id = query.from_user.id
     if not callback_is_private(query): await reject_group_config_callback(query, context.bot_data, user_id); return
-    await query.answer()
+    await safe_answer_callback(query)
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3: await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
     _, chat_id_raw, ext_raw = parts
@@ -5184,7 +5566,7 @@ async def group_admin_panel_callback(update: Update, context: ContextTypes.DEFAU
     if not query or not query.from_user: return
     user_id = query.from_user.id
     if not callback_is_private(query): await reject_group_config_callback(query, context.bot_data, user_id); return
-    await query.answer()
+    await safe_answer_callback(query)
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3: await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
     _, chat_id_raw, action = parts
@@ -5201,6 +5583,8 @@ async def group_admin_panel_callback(update: Update, context: ContextTypes.DEFAU
         await send_or_edit_panel(update, tr(context.bot_data, user_id, "scanner_panel_title", group=h(title), scanner=scanner_group_config_text(context.bot_data, user_id, chat_id)), _group_back_keyboard(context.bot_data, user_id, chat_id))
     elif action == "incidents": await render_group_incidents_panel(update, context, user_id, chat_id)
     elif action == "clear_incidents":
+        await render_destructive_confirmation(update, context, user_id, chat_id, summary_key="confirm_clear_incidents", yes_callback=f"gap:{chat_id}:clear_incidents_yes", no_callback=f"gap:{chat_id}:incidents")
+    elif action == "clear_incidents_yes":
         async with BOT_DATA_LOCK:
             incidents = context.bot_data.get("incidents", {}) if isinstance(context.bot_data.get("incidents", {}), dict) else {}
             for ikey, incident in list(incidents.items()):
@@ -5212,6 +5596,8 @@ async def group_admin_panel_callback(update: Update, context: ContextTypes.DEFAU
     elif action == "admins": await render_group_admin_alert_panel(update, context, user_id, chat_id)
     elif action == "admin_logs": await render_group_admin_logs_panel(update, context, user_id, chat_id)
     elif action == "clear_admin_logs":
+        await render_destructive_confirmation(update, context, user_id, chat_id, summary_key="confirm_clear_admin_logs", yes_callback=f"gap:{chat_id}:clear_admin_logs_yes", no_callback=f"gap:{chat_id}:admin_logs")
+    elif action == "clear_admin_logs_yes":
         async with BOT_DATA_LOCK:
             logs = [item for item in _admin_action_logs(context.bot_data) if str(item.get("chat_id")) != str(int(chat_id))]
             context.bot_data["admin_action_logs"] = logs
@@ -5231,7 +5617,7 @@ async def trusted_hash_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await query.answer()
+    await safe_answer_callback(query)
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3:
         await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
@@ -5256,6 +5642,16 @@ async def trusted_hash_callback(update: Update, context: ContextTypes.DEFAULT_TY
     elif action == "remove":
         await render_trusted_hash_panel(update, context, user_id, chat_id, remove_mode=True)
     elif action == "clear":
+        await render_destructive_confirmation(
+            update,
+            context,
+            user_id,
+            chat_id,
+            summary_key="confirm_clear_hashes",
+            yes_callback=f"ghash:{chat_id}:clear_yes",
+            no_callback=f"ghash:{chat_id}:menu",
+        )
+    elif action == "clear_yes":
         async with BOT_DATA_LOCK:
             clear_trusted_file_hashes(context.bot_data, chat_id)
             await persist_context_memory(context, reason="trusted_hash_clear", force=True, caller_holds_lock=True)
@@ -5272,7 +5668,7 @@ async def delete_trusted_hash_callback(update: Update, context: ContextTypes.DEF
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await query.answer()
+    await safe_answer_callback(query)
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3:
         await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
@@ -5297,7 +5693,7 @@ async def auto_actions_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if not query or not query.from_user: return
     user_id = query.from_user.id
     if not callback_is_private(query): await reject_group_config_callback(query, context.bot_data, user_id); return
-    await query.answer()
+    await safe_answer_callback(query)
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3: await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
     _, chat_id_raw, mode = parts
@@ -5516,7 +5912,7 @@ def format_admin_alert(
         sender_name=h(sender_name),
         sender_id=int(sender_id),
         file_name=h(file_name),
-        scan_result=scan_result,
+        scan_result=h(scan_result),
         group_name=h(group_name),
         group_id=int(group_id),
         time=h(time_str),
@@ -5642,8 +6038,8 @@ async def maybe_apply_auto_action(context: ContextTypes.DEFAULT_TYPE, *, chat_id
         result = "not-run"
         if action == "warn":
             mention = user_link(sender_id, sender_name); lang = get_group_lang(context.bot_data, chat_id)
-            sent_id = await safe_send_message(context, chat_id, TEXTS[lang]["warn_in_group"].format(user=mention))
-            result = "warned" if sent_id is not None else "warn-failed"
+            send_result = await safe_send_message_result(context, chat_id, TEXTS[lang]["warn_in_group"].format(user=mention), operation="auto_warn")
+            result = "warned" if send_result.ok else f"warn-failed:{send_result.error_type or 'send_failed'}"
         elif action == "mute":
             perms = await get_bot_member_cached(context, chat_id, force=True, allow_api=True)
             if not has_ban_permission(perms): result = "mute-failed:no-restrict-permission"
@@ -5873,7 +6269,7 @@ async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     query = update.callback_query
     if not query or not query.from_user:
         return
-    await query.answer()
+    await safe_answer_callback(query)
 
     user_id = query.from_user.id
     data = query.data or ""
@@ -5914,7 +6310,7 @@ async def check_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     if not query or not query.from_user:
         return
-    await query.answer()
+    await safe_answer_callback(query)
 
     user_id = query.from_user.id
     retry_kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user_id, "check_btn"), callback_data="check_perm")]])
@@ -5962,7 +6358,7 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     if not query or not query.from_user:
         return
-    await query.answer()
+    await safe_answer_callback(query)
 
     admin_id = query.from_user.id
     data = query.data or ""
@@ -6021,9 +6417,9 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             mention = user_link(sender_id, sender_name_raw)
             warn_text = TEXTS[get_lang(context.bot_data, admin_id)]["warn_in_group"].format(user=mention)
             try:
-                sent_id = await safe_send_message(context, chat_id, warn_text)
-                if sent_id is None:
-                    raise TelegramError("warning message could not be delivered")
+                send_result = await safe_send_message_result(context, chat_id, warn_text, operation="incident_warn")
+                if not send_result.ok:
+                    raise TelegramError(send_result.error or "warning message could not be delivered")
                 result_msg = tr(context.bot_data, admin_id, "action_warn_ok", name=sender_name)
             except (TimedOut, BadRequest, Forbidden, TelegramError):
                 logger.exception("Warn failed chat_id=%s sender_id=%s", chat_id, sender_id, exc_info=True)
@@ -6063,6 +6459,192 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if action_success:
             clicked_message_id = int(query.message.message_id) if query.message else None
             await sync_handled_alert_messages(context, incident, exclude_admin_id=admin_id, exclude_message_id=clicked_message_id)
+
+
+def _replace_group_id_in_sequence(values: Any, old_id: int, new_id: int) -> list[Any]:
+    if not isinstance(values, list):
+        return []
+    replaced: list[Any] = []
+    seen: set[int] = set()
+    for item in values:
+        try:
+            parsed = int(item)
+        except (TypeError, ValueError):
+            replaced.append(item)
+            continue
+        if parsed == int(old_id):
+            parsed = int(new_id)
+        if parsed not in seen:
+            replaced.append(parsed)
+            seen.add(parsed)
+    return replaced
+
+
+async def migrate_group_state(context: ContextTypes.DEFAULT_TYPE, old_chat_id: int, new_chat_id: int, *, new_title: str = "", chat_type: str = "supergroup") -> None:
+    """Copy every durable group reference from an upgraded group to its new supergroup ID."""
+    old_chat_id = int(old_chat_id)
+    new_chat_id = int(new_chat_id)
+    old_key = str(old_chat_id)
+    new_key = str(new_chat_id)
+    if old_chat_id == new_chat_id:
+        return
+
+    async with BOT_DATA_LOCK:
+        group_state = context.bot_data.setdefault("group_state", {})
+        if not isinstance(group_state, dict):
+            group_state = {}
+            context.bot_data["group_state"] = group_state
+
+        old_state = group_state.get(old_key) or group_state.get(old_chat_id)
+        new_state = group_state.get(new_key) or group_state.get(new_chat_id)
+        merged: dict[str, Any] = {}
+        if isinstance(old_state, dict):
+            merged.update(copy.deepcopy(old_state))
+        if isinstance(new_state, dict):
+            # Keep any fields already learned for the supergroup, but preserve
+            # old settings/whitelists unless the new state explicitly has them.
+            for key, value in copy.deepcopy(new_state).items():
+                if key == "settings" and isinstance(merged.get("settings"), dict) and isinstance(value, dict):
+                    settings = merged.setdefault("settings", {})
+                    for setting_key, setting_value in value.items():
+                        settings[setting_key] = setting_value
+                else:
+                    merged[key] = value
+        merged.setdefault("lang", "en")
+        merged["migrated_from_chat_id"] = old_chat_id
+        merged["chat_id"] = new_chat_id
+        merged["last_seen_ms"] = now_ms()
+        if new_title:
+            merged["title"] = str(new_title)
+            merged["chat_title"] = str(new_title)
+        group_state[new_key] = merged
+        group_state.pop(old_key, None)
+        group_state.pop(old_chat_id, None)
+        group_state.pop(new_chat_id, None)
+
+        # Ensure settings schema is normalized after merging.
+        get_group_settings(context.bot_data, new_chat_id)
+
+        user_state = context.bot_data.get("user_state")
+        if isinstance(user_state, dict):
+            for state in user_state.values():
+                if not isinstance(state, dict):
+                    continue
+                if isinstance(state.get("groups"), list):
+                    state["groups"] = _replace_group_id_in_sequence(state.get("groups"), old_chat_id, new_chat_id)
+                pending = state.get("pending_format_edit")
+                if isinstance(pending, dict) and str(pending.get("chat_id")) == old_key:
+                    pending["chat_id"] = new_chat_id
+
+        for bucket_name in ("admin_ids_cache", "bot_member_cache", "chat_meta_cache", "inaccessible_chats"):
+            bucket = context.bot_data.get(bucket_name)
+            if not isinstance(bucket, dict):
+                continue
+            record = bucket.pop(old_key, None)
+            bucket.pop(old_chat_id, None)
+            existing_new = bucket.get(new_key) or bucket.get(new_chat_id)
+            if isinstance(record, dict):
+                moved = copy.deepcopy(record)
+                if bucket_name == "chat_meta_cache":
+                    moved["id"] = new_chat_id
+                    if new_title:
+                        moved["title"] = str(new_title)
+                    moved["type"] = str(chat_type or "supergroup")
+                    moved["updated_at_ms"] = _cache_now_ms()
+                if isinstance(existing_new, dict):
+                    merged_cache = moved
+                    merged_cache.update(copy.deepcopy(existing_new))
+                    bucket[new_key] = merged_cache
+                else:
+                    bucket[new_key] = moved
+                bucket.pop(new_chat_id, None)
+
+        warning_counts = context.bot_data.get("warning_counts")
+        if isinstance(warning_counts, dict):
+            moved = warning_counts.pop(old_key, None)
+            warning_counts.pop(old_chat_id, None)
+            if moved is not None and new_key not in warning_counts:
+                warning_counts[new_key] = moved
+            for key in list(warning_counts.keys()):
+                key_text = str(key)
+                if key_text.startswith(f"{old_key}:"):
+                    warning_counts[f"{new_key}:{key_text.split(':', 1)[1]}"] = warning_counts.pop(key)
+
+        moved_incident_keys: dict[str, str] = {}
+        incidents = context.bot_data.get("incidents")
+        if isinstance(incidents, dict):
+            for ikey, incident in list(incidents.items()):
+                key_text = str(ikey)
+                should_move_key = key_text.startswith(f"{old_key}:")
+                should_update_chat = isinstance(incident, dict) and str(incident.get("chat_id")) == old_key
+                if isinstance(incident, dict) and (should_move_key or should_update_chat):
+                    incident["chat_id"] = new_chat_id
+                    if new_title:
+                        incident["group_name"] = str(new_title)
+                if should_move_key:
+                    suffix = key_text.split(":", 1)[1]
+                    new_ikey = f"{new_key}:{suffix}"
+                    if new_ikey not in incidents:
+                        incidents[new_ikey] = incidents.pop(ikey)
+                    else:
+                        incidents.pop(ikey, None)
+                    moved_incident_keys[key_text] = new_ikey
+
+        tokens = context.bot_data.get("incident_tokens")
+        if isinstance(tokens, dict) and moved_incident_keys:
+            for token, stored_key in list(tokens.items()):
+                replacement = moved_incident_keys.get(str(stored_key))
+                if replacement:
+                    tokens[token] = replacement
+
+        await persist_context_memory(context, reason="chat_migration", force=True, caller_holds_lock=True)
+
+    async with ADMIN_CACHE_LOCK:
+        old_admin_cache = ADMIN_IDS_CACHE.pop(old_chat_id, None)
+        if old_admin_cache is not None:
+            ADMIN_IDS_CACHE[new_chat_id] = old_admin_cache
+    async with BOT_MEMBER_CACHE_LOCK:
+        old_bot_cache = BOT_MEMBER_CACHE.pop(old_chat_id, None)
+        if old_bot_cache is not None:
+            BOT_MEMBER_CACHE[new_chat_id] = old_bot_cache
+    async with INCIDENT_LOCKS_LOCK:
+        for ikey, lock in list(INCIDENT_LOCKS.items()):
+            if str(ikey).startswith(f"{old_key}:"):
+                suffix = str(ikey).split(":", 1)[1]
+                INCIDENT_LOCKS[f"{new_key}:{suffix}"] = lock
+                INCIDENT_LOCKS.pop(ikey, None)
+
+    logger.info("Migrated group state old_chat_id=%s new_chat_id=%s title=%r", old_chat_id, new_chat_id, new_title)
+
+
+async def handle_chat_migration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    chat = update.effective_chat
+    if not message:
+        return
+    migrate_to = getattr(message, "migrate_to_chat_id", None)
+    migrate_from = getattr(message, "migrate_from_chat_id", None)
+    if migrate_to is not None:
+        old_chat_id = int(chat.id if chat else getattr(message, "chat_id", 0) or 0)
+        new_chat_id = int(migrate_to)
+    elif migrate_from is not None:
+        old_chat_id = int(migrate_from)
+        new_chat_id = int(chat.id if chat else getattr(message, "chat_id", 0) or 0)
+    else:
+        return
+    if not old_chat_id or not new_chat_id:
+        logger.warning("Chat migration update missing IDs migrate_from=%r migrate_to=%r chat=%r", migrate_from, migrate_to, getattr(chat, "id", None))
+        return
+    try:
+        await migrate_group_state(
+            context,
+            old_chat_id,
+            new_chat_id,
+            new_title=getattr(chat, "title", None) or "",
+            chat_type=str(getattr(chat, "type", "supergroup")),
+        )
+    except Exception:
+        logger.exception("Failed to migrate group state old_chat_id=%s new_chat_id=%s", old_chat_id, new_chat_id, exc_info=True)
 
 
 async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -6183,15 +6765,30 @@ async def private_document_flow_handler(update: Update, context: ContextTypes.DE
     document = message.document
     file_name = normalize_filename(getattr(document, "file_name", None))
     file_size = int(getattr(document, "file_size", 0) or 0)
-    if file_size <= 0 or file_size > trusted_hash_max_download_bytes(context.bot_data):
+    if file_size <= 0 or file_size > trusted_hash_max_download_bytes(context.bot_data) or file_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
+        if file_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
+            logger.warning(
+                "Trusted-hash upload skipped; Telegram Bot API file-size limit exceeded user_id=%s chat_id=%s file_name=%r size=%s limit=%s",
+                user.id,
+                chat_id,
+                file_name,
+                file_size,
+                TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES,
+            )
         await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_file_too_large"))
         return
 
-    data = await _download_document_bytes_for_scanner(context, document, file_name=file_name, file_size=file_size)
+    data = await _download_document_bytes_for_scanner(
+        context,
+        document,
+        file_name=file_name,
+        file_size=file_size,
+        max_bytes=trusted_hash_max_download_bytes(context.bot_data),
+    )
     if data is None:
         await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_invalid"))
         return
-    digest = calculate_file_hash(data)
+    digest = await calculate_file_hash_async(data)
 
     async with BOT_DATA_LOCK:
         settings = get_group_settings(context.bot_data, chat_id)
@@ -6209,12 +6806,50 @@ async def private_document_flow_handler(update: Update, context: ContextTypes.DE
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     chat = update.effective_chat
+    sender = message.from_user if message else None
+    sender_id = int(sender.id) if sender else 0
     user_id = update.effective_user.id if update.effective_user else None
     if not message or not chat or not message.document or not is_group_chat(chat.type):
         return
 
+    document = message.document
+    file_name_meta = normalize_filename(getattr(document, "file_name", None))
+    file_size = int(getattr(document, "file_size", 0) or 0)
+
+    async with BOT_DATA_LOCK:
+        settings_snapshot = dict(get_group_settings(context.bot_data, chat.id))
+
+    if not settings_snapshot.get("protection_enabled", True):
+        return
+
+    strict_admins = bool(settings_snapshot.get("strict_enforcement_on_admins", STRICT_ENFORCEMENT_ON_ADMINS_DEFAULT))
+    if sender_id and not strict_admins:
+        try:
+            admin_ids = await get_chat_admin_ids_cached(context, chat.id, allow_api=True)
+            if sender_id in admin_ids or sender_id in BOT_OWNER_IDS:
+                logger.info(
+                    "Document scan bypassed for verified admin/owner chat_id=%s user_id=%s file_name=%r strict_admins=%s",
+                    chat.id,
+                    sender_id,
+                    file_name_meta,
+                    strict_admins,
+                )
+                return
+        except Exception:
+            logger.exception("Admin bypass check failed; continuing with scanner chat_id=%s user_id=%s", chat.id, sender_id, exc_info=True)
+
+    if file_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
+        logger.warning(
+            "Incoming document exceeds Telegram Bot API download limit; filename/MIME policy only chat_id=%s user_id=%s file_name=%r size=%s limit=%s",
+            chat.id,
+            sender_id,
+            file_name_meta,
+            file_size,
+            TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES,
+        )
+
     try:
-        scan = await scan_document(context, message.document, chat_id=chat.id)
+        scan = await scan_document(context, document, chat_id=chat.id)
         async with BOT_DATA_LOCK:
             scan = apply_group_scan_policy(context.bot_data, chat.id, scan)
     except Exception:
@@ -6225,8 +6860,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not scan.blocked:
         return
 
-    sender = message.from_user
-    sender_id = sender.id if sender else 0
     sender_name_raw = sender.full_name if sender else "Unknown"
     file_name = scan.file_name
 
@@ -6259,8 +6892,13 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         scan_reason = describe_scan_reason(scan.reason_code, (scan.reason_display, *scan.details))
         async with BOT_DATA_LOCK:
             settings = dict(get_group_settings(context.bot_data, chat.id))
-        if not settings.get("silent_mode", False):
-            group_notice = tr_group(context.bot_data, chat.id, "exe_removed_group", user=user_mention, reason=scan_reason)
+
+        group_notice = tr_group(context.bot_data, chat.id, "exe_removed_group", user=user_mention, reason=h(scan_reason))
+        if settings.get("silent_mode", False):
+            group_notice += tr_group(context.bot_data, chat.id, "silent_notice_auto_delete")
+            notice_id = await safe_send_message(context, chat.id, group_notice)
+            schedule_auto_delete_message(context, chat_id=chat.id, message_id=notice_id)
+        else:
             await safe_send_message(context, chat.id, group_notice)
 
         ikey = incident_key(chat.id, sender_id, message.message_id)
@@ -6290,6 +6928,57 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except Exception:
         logger.exception("Post-delete incident workflow failed chat_id=%s user_id=%s", chat.id, user_id, exc_info=True)
         await safe_send_message(context, chat.id, tr_group(context.bot_data, chat.id, "unknown_error"))
+
+
+
+def scanner_selftest_results() -> list[tuple[str, bool, str]]:
+    """Run lightweight scanner checks that do not call Telegram APIs."""
+    results: list[tuple[str, bool, str]] = []
+
+    def add(name: str, ok: bool, detail: str) -> None:
+        results.append((name, bool(ok), detail))
+
+    r = scan_filename_only("invoice.pdf.exe")
+    add("block direct .exe", r.blocked and r.reason_code == "blocked_extension", r.reason_code)
+
+    r = scan_filename_only("invoice.exe.zip")
+    add("block hidden .exe before archive", r.blocked and r.matched_extension == ".exe", r.reason_code)
+
+    r = scan_filename_only("safe-report.pdf")
+    add("allow normal PDF name", not r.blocked, r.reason_code)
+
+    r = scan_file_bytes("renamed.bin", "application/octet-stream", b"MZ" + b"0" * 32)
+    add("block PE magic header", bool(r and r.blocked and r.reason_code == "pe_magic_header"), r.reason_code if r else "no-result")
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("safe/readme.txt", b"ok")
+        zf.writestr("payload.exe", b"fake")
+    r = scan_file_bytes("bundle.zip", "application/zip", archive.getvalue())
+    add("block dangerous ZIP member", bool(r and r.blocked and r.reason_code == "archive_contains_dangerous_file"), r.reason_code if r else "no-result")
+
+    return results
+
+
+async def selftest_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not _dev_is_owner(user.id):
+        await safe_reply(update, tr(context.bot_data, user.id if user else None, "access_denied"))
+        return
+
+    results = scanner_selftest_results()
+    passed = sum(1 for _, ok, _ in results if ok)
+    total = len(results)
+    lines = ["🧪 <b>Scanner Self-Test</b>", f"Result: <code>{passed}/{total}</code> passed", ""]
+    for name, ok, detail in results:
+        lines.append(f"{'✅' if ok else '❌'} {h(name)} — <code>{h(detail)}</code>")
+    lines.extend([
+        "",
+        f"Trusted hash whitelist: <code>{str(trusted_hash_whitelist_enabled(context.bot_data)).lower()}</code>",
+        f"Hash max file size: <code>{trusted_hash_max_download_bytes(context.bot_data)}</code> bytes (<code>{format_bytes_mb(trusted_hash_max_download_bytes(context.bot_data))}</code>)",
+        f"Max trusted hashes/group: <code>{max_trusted_file_hashes(context.bot_data)}</code>",
+    ])
+    await safe_reply(update, "\n".join(lines))
 
 
 def scanner_config_text(bot_data: dict[str, Any], user_id: int | None) -> str:
@@ -6359,7 +7048,7 @@ async def scanname_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if result.blocked:
         await safe_reply(
             update,
-            tr(context.bot_data, user_id, "scanname_blocked", file=h(result.file_name), reason=describe_scan_reason(result.reason_code, (result.reason_display, *result.details))),
+            tr(context.bot_data, user_id, "scanname_blocked", file=h(result.file_name), reason=h(describe_scan_reason(result.reason_code, (result.reason_display, *result.details)))),
         )
     else:
         await safe_reply(update, tr(context.bot_data, user_id, "scanname_clean", file=h(result.file_name)))
@@ -6516,7 +7205,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 def build_application() -> Application:
-    persistence = PicklePersistence(filepath=PERSISTENCE_FILE) if LOCAL_PERSISTENCE_ENABLED else None
+    if LOCAL_PERSISTENCE_ENABLED:
+        prepare_local_persistence_file(PERSISTENCE_FILE)
+    persistence = ThreadedPicklePersistence(filepath=PERSISTENCE_FILE) if LOCAL_PERSISTENCE_ENABLED else None
 
     builder: ApplicationBuilder = (
         Application.builder()
@@ -6545,22 +7236,24 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("scanname", scanname_command))
     app.add_handler(CommandHandler("memory", memory_command))
     app.add_handler(CommandHandler("debug", debug_command))
+    app.add_handler(CommandHandler("selftest", selftest_command))
     app.add_handler(CallbackQueryHandler(lang_callback, pattern=r"^lang_(en|km)$"))
-    app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups|help|feedback)$"))
+    app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups(?::\d+)?|help|feedback)$"))
     app.add_handler(CallbackQueryHandler(developer_dashboard_callback, pattern=r"^dev:(home|refresh|memory|feedback|hash(?::(?:toggle|size(?::\d+)?|limit(?::\d+)?))?|users(?::\d+)?|user:-?\d+|groups(?::\d+)?)$"))
     app.add_handler(CallbackQueryHandler(group_dashboard_callback, pattern=r"^grp:-?\d+$"))
-    app.add_handler(CallbackQueryHandler(group_admin_panel_callback, pattern=r"^gap:-?\d+:(protection|scanner|incidents|risk|admins|admin_logs|clear_admin_logs|allowed|health|auto|clear_incidents|refresh)$"))
+    app.add_handler(CallbackQueryHandler(group_admin_panel_callback, pattern=r"^gap:-?\d+:(protection|scanner|incidents|risk|admins|admin_logs|clear_admin_logs|clear_admin_logs_yes|allowed|health|auto|clear_incidents|clear_incidents_yes|refresh)$"))
     app.add_handler(CallbackQueryHandler(group_settings_callback, pattern=r"^gset:-?\d+:(protection|strictness|silent)$"))
-    app.add_handler(CallbackQueryHandler(format_manager_callback, pattern=r"^gfmt:-?\d+:(menu|add|edit|remove|clear)$"))
+    app.add_handler(CallbackQueryHandler(format_manager_callback, pattern=r"^gfmt:-?\d+:(menu|add|edit|remove|clear|clear_yes)$"))
     app.add_handler(CallbackQueryHandler(delete_format_callback, pattern=r"^gfmtdel:-?\d+:[A-Za-z0-9_.+-]{1,16}$"))
-    app.add_handler(CallbackQueryHandler(allowed_formats_callback, pattern=r"^gallow:-?\d+:(menu|add|edit|remove|clear)$"))
+    app.add_handler(CallbackQueryHandler(allowed_formats_callback, pattern=r"^gallow:-?\d+:(menu|add|edit|remove|clear|clear_yes)$"))
     app.add_handler(CallbackQueryHandler(delete_allowed_format_callback, pattern=r"^gallowdel:-?\d+:[A-Za-z0-9_.+-]{1,16}$"))
-    app.add_handler(CallbackQueryHandler(trusted_hash_callback, pattern=r"^ghash:-?\d+:(menu|add|remove|clear)$"))
+    app.add_handler(CallbackQueryHandler(trusted_hash_callback, pattern=r"^ghash:-?\d+:(menu|add|remove|clear|clear_yes)$"))
     app.add_handler(CallbackQueryHandler(delete_trusted_hash_callback, pattern=r"^ghashdel:-?\d+:[a-fA-F0-9]{12}$"))
     app.add_handler(CallbackQueryHandler(auto_actions_callback, pattern=r"^gauto:-?\d+:(off|warn|smart|ban)$"))
     app.add_handler(CallbackQueryHandler(check_perm_callback, pattern=r"^check_perm$"))
     app.add_handler(CallbackQueryHandler(action_callback, pattern=r"^act:(ban|warn|ignore):.+$"))
     app.add_handler(ChatMemberHandler(my_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER))
+    app.add_handler(MessageHandler(filters.StatusUpdate.MIGRATE, handle_chat_migration))
     app.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, private_document_flow_handler))
     app.add_handler(MessageHandler(filters.Document.ALL & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP), handle_document))
     app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, private_text_flow_handler))
@@ -6592,21 +7285,9 @@ def resolve_run_mode() -> str:
 
 
 
-def ensure_main_event_loop() -> None:
-    """
-    Python 3.14 no longer creates a default event loop for MainThread.
-    python-telegram-bot's run_webhook/run_polling still asks asyncio for the
-    current loop internally, so create and set one explicitly before calling it.
-    """
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        logger.info("Created and set a MainThread asyncio event loop for Python 3.14 compatibility.")
-
 def main() -> None:
-    ensure_main_event_loop()
+    # PTB run_polling/run_webhook owns loop lifecycle. Do not pre-create or set a loop here.
+
     app = build_application()
     mode = resolve_run_mode()
 
