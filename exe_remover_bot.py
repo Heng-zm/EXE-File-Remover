@@ -1617,6 +1617,47 @@ if PROFESSIONAL_UI_ENABLED:
     for _lang, _items in PROFESSIONAL_UI_V3_TEXTS.items():
         TEXTS.setdefault(_lang, {}).update(_items)
 
+BOT_ADMIN_REQUIRED_TEXTS: dict[str, dict[str, str]] = {
+    "en": {
+        "bot_admin_required_title": (
+            "🔒 <b>Bot Settings Locked</b>\n"
+            "💬 <b>{group}</b> <code>{chat_id}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Bot status: <code>{status}</code>\n"
+            "Delete Messages: {can_delete}\n"
+            "Restrict/Ban Users: {can_restrict}\n\n"
+            "To unlock the Settings button, a group admin must add this bot as an <b>Administrator</b> and enable <b>Delete Messages</b>.\n\n"
+            "After updating permissions in Telegram, tap <b>Check Again</b>."
+        ),
+        "btn_check_again": "🔄 Check Again",
+        "bot_admin_required_group": (
+            "🔒 <b>Settings are locked.</b>\n\n"
+            "Please add me as a group <b>Administrator</b> and enable <b>Delete Messages</b>. "
+            "I will show the Settings button only after the permission is confirmed."
+        ),
+    },
+    "km": {
+        "bot_admin_required_title": (
+            "🔒 <b>Bot Settings ត្រូវបាន Lock</b>\n"
+            "💬 <b>{group}</b> <code>{chat_id}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Bot status: <code>{status}</code>\n"
+            "សិទ្ធិ Delete Messages: {can_delete}\n"
+            "សិទ្ធិ Restrict/Ban Users: {can_restrict}\n\n"
+            "ដើម្បីបើកប៊ូតុង Settings ម្ចាស់/Admin ក្រុមត្រូវដាក់ Bot ជា <b>Administrator</b> ហើយបើកសិទ្ធិ <b>Delete Messages</b>។\n\n"
+            "បន្ទាប់ពីកែ Permission នៅ Telegram សូមចុច <b>Check Again</b>។"
+        ),
+        "btn_check_again": "🔄 ពិនិត្យម្តងទៀត",
+        "bot_admin_required_group": (
+            "🔒 <b>Settings ត្រូវបាន Lock។</b>\n\n"
+            "សូមដាក់ខ្ញុំជា <b>Administrator</b> ក្នុងក្រុម ហើយបើកសិទ្ធិ <b>Delete Messages</b>។ "
+            "ខ្ញុំនឹងបង្ហាញប៊ូតុង Settings តែបន្ទាប់ពី Permission ត្រូវបានបញ្ជាក់។"
+        ),
+    },
+}
+for _lang, _items in BOT_ADMIN_REQUIRED_TEXTS.items():
+    TEXTS.setdefault(_lang, {}).update(_items)
+
 DEFAULT_GROUP_SETTINGS: dict[str, Any] = {
     "protection_enabled": True,
     "strictness": "standard",  # standard=.exe/PE only, high=all dangerous extensions, strict=high + archive-risk focus
@@ -3800,6 +3841,70 @@ def has_ban_permission(perms: BotPerms) -> bool:
     return perms.status in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"} and perms.can_restrict_members
 
 
+def bot_settings_unlocked_from_state(bot_data: dict[str, Any], chat_id: int) -> bool:
+    """Settings are visible only after the bot is confirmed admin with Delete Messages."""
+    if is_chat_api_suppressed(bot_data, int(chat_id)):
+        return False
+    perms = get_bot_member_from_state(bot_data, int(chat_id))
+    return bool(perms and has_delete_permission(perms))
+
+
+async def ensure_bot_settings_unlocked(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    *,
+    force: bool = True,
+) -> bool:
+    """Refresh bot permissions and allow settings only when Delete Messages is available."""
+    perms = await get_bot_member_cached(context, int(chat_id), force=force, allow_api=True)
+    return has_delete_permission(perms)
+
+
+def bot_admin_required_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_check_again"), callback_data=f"grp:{int(chat_id)}")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_quick_health"), callback_data=f"gap:{int(chat_id)}:health")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data="nav:groups")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
+        ]
+    )
+
+
+def bot_admin_required_text(bot_data: dict[str, Any], user_id: int, chat_id: int) -> str:
+    title = get_chat_title_from_state(bot_data, int(chat_id))
+    perms = get_bot_member_from_state(bot_data, int(chat_id)) or BotPerms("unknown", False, False)
+    return tr(
+        bot_data,
+        user_id,
+        "bot_admin_required_title",
+        group=h(title),
+        chat_id=int(chat_id),
+        status=h(perms.status or "unknown"),
+        can_delete=_yes_no(bool(perms.can_delete_messages)),
+        can_restrict=_yes_no(bool(perms.can_restrict_members)),
+    )
+
+
+async def render_bot_admin_required_panel(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    chat_id: int,
+    *,
+    force_refresh: bool = False,
+) -> None:
+    if force_refresh:
+        try:
+            await get_bot_member_cached(context, int(chat_id), force=True, allow_api=True)
+        except Exception:
+            logger.exception("Bot permission refresh failed for locked settings panel chat_id=%s", chat_id, exc_info=True)
+    async with BOT_DATA_LOCK:
+        text = bot_admin_required_text(context.bot_data, user_id, int(chat_id))
+        keyboard = bot_admin_required_keyboard(context.bot_data, user_id, int(chat_id))
+    await send_or_edit_panel(update, text, keyboard)
+
+
 # ─────────────────────────────────────────────────────────────
 # KEYBOARDS
 # ─────────────────────────────────────────────────────────────
@@ -4563,6 +4668,10 @@ async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 def group_settings_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
+    # Hide Settings modules until the bot is confirmed as admin with Delete Messages.
+    if not bot_settings_unlocked_from_state(bot_data, int(chat_id)):
+        return bot_admin_required_keyboard(bot_data, user_id, int(chat_id))
+
     settings = get_group_settings(bot_data, chat_id)
     protection_label = tr(bot_data, user_id, "label_protection_on" if settings.get("protection_enabled", True) else "label_protection_off")
     access_badge = tr(bot_data, user_id, "label_no_access" if is_chat_api_suppressed(bot_data, chat_id) else "label_access_ok")
@@ -4718,35 +4827,40 @@ async def render_group_settings_panel(
     notice: str = "",
 ) -> None:
     async with BOT_DATA_LOCK:
-        title = get_chat_title_from_state(context.bot_data, chat_id)
-        no_access = is_chat_api_suppressed(context.bot_data, chat_id)
-        settings = dict(get_group_settings(context.bot_data, chat_id))
-        allowed = format_extension_list(settings.get("allowed_extensions", []))
-        custom_blocked = format_extension_list(settings.get("custom_blocked_extensions", []))
-        admin_ready, admin_total = _admin_alert_ready_counts_from_state(context.bot_data, chat_id)
-        text = tr(
-            context.bot_data,
-            user_id,
-            "group_admin_title",
-            group=h(title),
-            chat_id=chat_id,
-            health_status=_group_health_status(context.bot_data, user_id, chat_id),
-            protection=_on_off(context.bot_data, user_id, bool(settings.get("protection_enabled"))),
-            strictness=_strictness_label(context.bot_data, user_id, str(settings.get("strictness", "standard"))),
-            silent=_on_off(context.bot_data, user_id, bool(settings.get("silent_mode")), key_on="silent_on", key_off="silent_off"),
-            allowed=h(allowed),
-            custom_blocked=h(custom_blocked),
-            trusted_hashes=len(settings.get("trusted_file_hashes", [])) if isinstance(settings.get("trusted_file_hashes"), list) else 0,
-            auto_action=h(_auto_action_label(settings.get("auto_action_mode"))),
-            admin_ready=admin_ready,
-            admin_total=admin_total,
-            open_incidents=_open_incident_count_for_chat(context.bot_data, chat_id),
-            admin_logs=_admin_log_count_for_chat(context.bot_data, chat_id),
-        )
-        text = f"{text}\n\n{tr(context.bot_data, user_id, 'admin_panel_tip')}"
-        keyboard = group_settings_keyboard(context.bot_data, user_id, chat_id)
-    if no_access and not notice:
-        notice = tr(context.bot_data, user_id, "group_no_access")
+        bot_ready = bot_settings_unlocked_from_state(context.bot_data, int(chat_id))
+        if not bot_ready:
+            text = bot_admin_required_text(context.bot_data, user_id, int(chat_id))
+            keyboard = bot_admin_required_keyboard(context.bot_data, user_id, int(chat_id))
+        else:
+            title = get_chat_title_from_state(context.bot_data, chat_id)
+            no_access = is_chat_api_suppressed(context.bot_data, chat_id)
+            settings = dict(get_group_settings(context.bot_data, chat_id))
+            allowed = format_extension_list(settings.get("allowed_extensions", []))
+            custom_blocked = format_extension_list(settings.get("custom_blocked_extensions", []))
+            admin_ready, admin_total = _admin_alert_ready_counts_from_state(context.bot_data, chat_id)
+            text = tr(
+                context.bot_data,
+                user_id,
+                "group_admin_title",
+                group=h(title),
+                chat_id=chat_id,
+                health_status=_group_health_status(context.bot_data, user_id, chat_id),
+                protection=_on_off(context.bot_data, user_id, bool(settings.get("protection_enabled"))),
+                strictness=_strictness_label(context.bot_data, user_id, str(settings.get("strictness", "standard"))),
+                silent=_on_off(context.bot_data, user_id, bool(settings.get("silent_mode")), key_on="silent_on", key_off="silent_off"),
+                allowed=h(allowed),
+                custom_blocked=h(custom_blocked),
+                trusted_hashes=len(settings.get("trusted_file_hashes", [])) if isinstance(settings.get("trusted_file_hashes"), list) else 0,
+                auto_action=h(_auto_action_label(settings.get("auto_action_mode"))),
+                admin_ready=admin_ready,
+                admin_total=admin_total,
+                open_incidents=_open_incident_count_for_chat(context.bot_data, chat_id),
+                admin_logs=_admin_log_count_for_chat(context.bot_data, chat_id),
+            )
+            text = f"{text}\n\n{tr(context.bot_data, user_id, 'admin_panel_tip')}"
+            keyboard = group_settings_keyboard(context.bot_data, user_id, chat_id)
+            if no_access and not notice:
+                notice = tr(context.bot_data, user_id, "group_no_access")
     if notice:
         text = f"{notice}\n\n{text}"
     await send_or_edit_panel(update, text, keyboard)
@@ -5644,7 +5758,10 @@ async def group_dashboard_callback(update: Update, context: ContextTypes.DEFAULT
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
         return
-    schedule_bot_member_refresh(context, chat_id)
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await link_user_to_group(context, user_id, chat_id)
+        await render_bot_admin_required_panel(update, context, user_id, chat_id)
+        return
     await link_user_to_group(context, user_id, chat_id)
     await render_group_settings_panel(update, context, user_id, chat_id)
 
@@ -5672,7 +5789,9 @@ async def group_settings_callback(update: Update, context: ContextTypes.DEFAULT_
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
         return
-    schedule_bot_member_refresh(context, chat_id)
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await render_bot_admin_required_panel(update, context, user_id, chat_id)
+        return
 
     async with BOT_DATA_LOCK:
         settings = get_group_settings(context.bot_data, chat_id)
@@ -5724,6 +5843,9 @@ async def format_manager_callback(update: Update, context: ContextTypes.DEFAULT_
         return
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await render_bot_admin_required_panel(update, context, user_id, chat_id)
         return
     schedule_bot_member_refresh(context, chat_id)
     await link_user_to_group(context, user_id, chat_id)
@@ -5793,6 +5915,9 @@ async def delete_format_callback(update: Update, context: ContextTypes.DEFAULT_T
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
         return
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await render_bot_admin_required_panel(update, context, user_id, chat_id)
+        return
     schedule_bot_member_refresh(context, chat_id)
 
     async with BOT_DATA_LOCK:
@@ -5819,6 +5944,9 @@ async def allowed_formats_callback(update: Update, context: ContextTypes.DEFAULT
         await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id)); return
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await render_bot_admin_required_panel(update, context, user_id, chat_id)
+        return
     schedule_bot_member_refresh(context, chat_id)
     await link_user_to_group(context, user_id, chat_id)
     if action == "menu": await render_allowed_manager_panel(update, context, user_id, chat_id); return
@@ -5855,6 +5983,9 @@ async def delete_allowed_format_callback(update: Update, context: ContextTypes.D
     if not VALID_EXTENSION_RE.fullmatch(ext): await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id)); return
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await render_bot_admin_required_panel(update, context, user_id, chat_id)
+        return
     async with BOT_DATA_LOCK:
         settings = get_group_settings(context.bot_data, chat_id)
         settings["allowed_extensions"] = [item for item in settings.get("allowed_extensions", []) if item != ext]
@@ -5875,10 +6006,20 @@ async def group_admin_panel_callback(update: Update, context: ContextTypes.DEFAU
     except ValueError: await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id)); return
-    schedule_bot_member_refresh(context, chat_id)
     await link_user_to_group(context, user_id, chat_id)
-    if action == "refresh": await render_group_settings_panel(update, context, user_id, chat_id)
-    elif action == "protection": await render_group_protection_panel(update, context, user_id, chat_id)
+    if action == "health":
+        await render_group_health_panel(update, context, user_id, chat_id)
+        return
+    if action == "refresh":
+        if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+            await render_bot_admin_required_panel(update, context, user_id, chat_id)
+            return
+        await render_group_settings_panel(update, context, user_id, chat_id)
+        return
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await render_bot_admin_required_panel(update, context, user_id, chat_id)
+        return
+    if action == "protection": await render_group_protection_panel(update, context, user_id, chat_id)
     elif action == "scanner":
         async with BOT_DATA_LOCK: title = get_chat_title_from_state(context.bot_data, chat_id)
         await send_or_edit_panel(update, tr(context.bot_data, user_id, "scanner_panel_title", group=h(title), scanner=scanner_group_config_text(context.bot_data, user_id, chat_id)), _group_back_keyboard(context.bot_data, user_id, chat_id))
@@ -5932,6 +6073,9 @@ async def trusted_hash_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
         return
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await render_bot_admin_required_panel(update, context, user_id, chat_id)
+        return
     if action == "menu":
         await render_trusted_hash_panel(update, context, user_id, chat_id)
     elif action == "add":
@@ -5983,6 +6127,9 @@ async def delete_trusted_hash_callback(update: Update, context: ContextTypes.DEF
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
         return
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await render_bot_admin_required_panel(update, context, user_id, chat_id)
+        return
     async with BOT_DATA_LOCK:
         remove_trusted_file_hash(context.bot_data, chat_id, digest_prefix)
         await persist_context_memory(context, reason="trusted_hash_remove", force=True, caller_holds_lock=True)
@@ -6003,6 +6150,9 @@ async def auto_actions_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if mode not in {"off", "warn", "smart", "ban"}: await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id)); return
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await render_bot_admin_required_panel(update, context, user_id, chat_id)
+        return
     async with BOT_DATA_LOCK:
         settings = get_group_settings(context.bot_data, chat_id)
         old_mode = str(settings.get("auto_action_mode") or "off")
@@ -6056,6 +6206,10 @@ async def private_text_flow_handler(update: Update, context: ContextTypes.DEFAUL
     if not await is_user_admin_in_group(context, chat_id, user.id, allow_api=True):
         await clear_pending_format_edit(context, user.id)
         await safe_reply(update, tr(context.bot_data, user.id, "group_admin_only"), reply_markup=await dashboard_home_keyboard(context, user.id))
+        return
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await clear_pending_format_edit(context, user.id)
+        await render_bot_admin_required_panel(update, context, user.id, chat_id)
         return
 
     mode = str(pending.get("mode") or "add")
@@ -6143,6 +6297,10 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 return
             await remember_chat_meta(context.bot_data, chat)
             await link_user_to_group(context, user.id, chat.id, title=chat.title or str(chat.id), chat_type=str(chat.type))
+            if not await ensure_bot_settings_unlocked(context, chat.id, force=True):
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user.id, "check_btn"), callback_data="check_perm")]])
+                await safe_reply(update, tr(context.bot_data, user.id, "bot_admin_required_group"), reply_markup=kb)
+                return
             url = await group_private_settings_url(context, chat.id)
             kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user.id, "btn_settings"), url=url)]])
             await safe_reply(update, tr(context.bot_data, user.id, "settings_group_open_private") + "\n\n" + tr(context.bot_data, user.id, "config_private_only"), reply_markup=kb)
@@ -7099,13 +7257,12 @@ async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TY
         msg = tr(context.bot_data, adder.id, "not_admin")
 
     try:
-        kb = InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton(tr(context.bot_data, adder.id, "btn_settings"), callback_data=f"grp:{chat.id}")],
-                [InlineKeyboardButton(tr(context.bot_data, adder.id, "check_btn"), callback_data="check_perm")],
-                [InlineKeyboardButton(tr(context.bot_data, adder.id, "btn_home"), callback_data="nav:home")],
-            ]
-        )
+        rows: list[list[InlineKeyboardButton]] = []
+        if is_admin and can_delete:
+            rows.append([InlineKeyboardButton(tr(context.bot_data, adder.id, "btn_settings"), callback_data=f"grp:{chat.id}")])
+        rows.append([InlineKeyboardButton(tr(context.bot_data, adder.id, "check_btn"), callback_data="check_perm")])
+        rows.append([InlineKeyboardButton(tr(context.bot_data, adder.id, "btn_home"), callback_data="nav:home")])
+        kb = InlineKeyboardMarkup(rows)
         await safe_send_message(context, adder.id, msg, reply_markup=kb)
     except Exception:
         logger.exception("Unexpected setup DM failure user_id=%s", adder.id, exc_info=True)
@@ -7138,6 +7295,10 @@ async def private_document_flow_handler(update: Update, context: ContextTypes.DE
     if not await is_user_admin_in_group(context, chat_id, user.id, allow_api=True):
         await clear_pending_format_edit(context, user.id)
         await safe_reply(update, tr(context.bot_data, user.id, "group_admin_only"), reply_markup=await dashboard_home_keyboard(context, user.id))
+        return
+    if not await ensure_bot_settings_unlocked(context, chat_id, force=True):
+        await clear_pending_format_edit(context, user.id)
+        await render_bot_admin_required_panel(update, context, user.id, chat_id)
         return
 
     document = message.document
@@ -7428,6 +7589,10 @@ async def scanner_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 return
             await remember_chat_meta(context.bot_data, chat)
             await link_user_to_group(context, user.id, chat.id, title=chat.title or str(chat.id), chat_type=str(chat.type))
+            if not await ensure_bot_settings_unlocked(context, chat.id, force=True):
+                kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user.id, "check_btn"), callback_data="check_perm")]])
+                await safe_reply(update, tr(context.bot_data, user.id, "bot_admin_required_group"), reply_markup=kb)
+                return
             url = await group_private_settings_url(context, chat.id)
             kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user.id, "btn_settings"), url=url)]])
             await safe_reply(update, tr(context.bot_data, user.id, "scanner_group_private_only"), reply_markup=kb)
