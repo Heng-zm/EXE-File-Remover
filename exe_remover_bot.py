@@ -158,7 +158,13 @@ TELEGRAM_CONNECTION_POOL_SIZE = _env_int("TELEGRAM_CONNECTION_POOL_SIZE", 32, mi
 TELEGRAM_POOL_TIMEOUT = _env_float("TELEGRAM_POOL_TIMEOUT", 10.0, min_value=1.0)
 TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES = 20_971_520
 SILENT_MODE_NOTICE_DELETE_SECONDS = _env_int("SILENT_MODE_NOTICE_DELETE_SECONDS", 12, min_value=5, max_value=60)
-STRICT_ENFORCEMENT_ON_ADMINS_DEFAULT = _env_bool("STRICT_ENFORCEMENT_ON_ADMINS", False)
+# Professional security default: admins/owners should NOT bypass scanner.
+# Previous builds allowed admin bypass when STRICT_ENFORCEMENT_ON_ADMINS=false,
+# which let files such as 1.exe pass through if sent by an admin.
+# ADMIN_BYPASS_ENABLED is now an explicit opt-in escape hatch, and even when
+# enabled the bypass never applies to obvious dangerous filenames/MIME types.
+STRICT_ENFORCEMENT_ON_ADMINS_DEFAULT = _env_bool("STRICT_ENFORCEMENT_ON_ADMINS", True)
+ADMIN_BYPASS_ENABLED = _env_bool("ADMIN_BYPASS_ENABLED", False)
 ADMIN_CACHE_TTL_SECONDS = _env_int("ADMIN_CACHE_TTL_SECONDS", 180, min_value=5)
 BOT_MEMBER_CACHE_TTL_SECONDS = _env_int("BOT_MEMBER_CACHE_TTL_SECONDS", 60, min_value=5)
 # When Telegram says the bot was kicked/removed from a group, suppress repeated
@@ -1499,7 +1505,7 @@ PROFESSIONAL_UI_V3_TEXTS: dict[str, dict[str, str]] = {
             "📋 <b>User Risk Profile</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "👤 User: {user}\n"
-            "🆔 User ID: <code>{user_id}</code>\n"
+            "🆔 User ID: <code>{target_user_id}</code>\n"
             "💬 Group: <b>{group}</b>\n"
             "📊 Risk level: <code>{risk}</code>\n"
             "🚨 Total incidents: <code>{incidents}</code>\n"
@@ -1591,7 +1597,7 @@ PROFESSIONAL_UI_V3_TEXTS: dict[str, dict[str, str]] = {
             "📋 <b>User Risk Profile</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "👤 User: {user}\n"
-            "🆔 User ID: <code>{user_id}</code>\n"
+            "🆔 User ID: <code>{target_user_id}</code>\n"
             "💬 Group: <b>{group}</b>\n"
             "📊 Risk level: <code>{risk}</code>\n"
             "🚨 Incident សរុប: <code>{incidents}</code>\n"
@@ -6300,7 +6306,7 @@ def _format_user_risk_profile(bot_data: dict[str, Any], admin_id: int, incident:
         admin_id,
         "risk_profile_title",
         user=user_link(sender_id, sender_name) if sender_id else h(sender_name),
-        user_id=sender_id,
+        target_user_id=sender_id,
         group=h(latest.get("group_name") or get_chat_title_from_state(bot_data, chat_id) or chat_id),
         risk=h(risk),
         incidents=total_incidents,
@@ -6754,7 +6760,11 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 if not isinstance(incident, dict):
                     await safe_edit_query(query, tr(context.bot_data, admin_id, "action_expired"))
                     return
-                profile_text = _format_user_risk_profile(context.bot_data, admin_id, incident)
+                try:
+                    profile_text = _format_user_risk_profile(context.bot_data, admin_id, incident)
+                except Exception:
+                    logger.exception("Risk profile render failed ikey=%s admin_id=%s", ikey, admin_id, exc_info=True)
+                    profile_text = tr(context.bot_data, admin_id, "unknown_error")
                 keyboard = action_keyboard(context.bot_data, admin_id, ikey) if not incident.get("done") else None
             await safe_edit_query(query, profile_text, reply_markup=keyboard)
             return
@@ -7190,21 +7200,37 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not settings_snapshot.get("protection_enabled", True):
         return
 
+    # v3 security fix: do not let admins/owners bypass blocked executable files.
+    # Safe default is to scan everyone.  If ADMIN_BYPASS_ENABLED=true is set
+    # intentionally, only allow bypass for admins/owners when the cheap
+    # filename/MIME pre-scan is clean. This prevents logs like:
+    # "Document scan bypassed ... file_name='1.exe' strict_admins=False".
     strict_admins = bool(settings_snapshot.get("strict_enforcement_on_admins", STRICT_ENFORCEMENT_ON_ADMINS_DEFAULT))
-    if sender_id and not strict_admins:
+    pre_scan = scan_filename_only(file_name_meta, getattr(document, "mime_type", "") or "")
+    allow_admin_bypass = bool(ADMIN_BYPASS_ENABLED and sender_id and not strict_admins and not pre_scan.blocked)
+    if allow_admin_bypass:
         try:
             admin_ids = await get_chat_admin_ids_cached(context, chat.id, allow_api=True)
             if sender_id in admin_ids or sender_id in BOT_OWNER_IDS:
                 logger.info(
-                    "Document scan bypassed for verified admin/owner chat_id=%s user_id=%s file_name=%r strict_admins=%s",
+                    "Document scan bypassed for verified admin/owner clean file chat_id=%s user_id=%s file_name=%r admin_bypass_enabled=%s strict_admins=%s",
                     chat.id,
                     sender_id,
                     file_name_meta,
+                    ADMIN_BYPASS_ENABLED,
                     strict_admins,
                 )
                 return
         except Exception:
             logger.exception("Admin bypass check failed; continuing with scanner chat_id=%s user_id=%s", chat.id, sender_id, exc_info=True)
+    elif sender_id and pre_scan.blocked and (not strict_admins or sender_id in BOT_OWNER_IDS):
+        logger.info(
+            "Admin/owner upload will be scanned because filename/MIME is blocked chat_id=%s user_id=%s file_name=%r reason=%s",
+            chat.id,
+            sender_id,
+            file_name_meta,
+            pre_scan.reason_code,
+        )
 
     if file_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
         logger.warning(
@@ -7227,6 +7253,15 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if not scan.blocked:
         return
+
+    if file_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
+        logger.info(
+            "Large document blocked by filename/MIME policy without byte download chat_id=%s user_id=%s file_name=%r reason=%s",
+            chat.id,
+            sender_id,
+            file_name_meta,
+            scan.reason_code,
+        )
 
     sender_name_raw = sender.full_name if sender else "Unknown"
     file_name = scan.file_name
