@@ -36,12 +36,14 @@ from telegram.error import BadRequest, Forbidden, RetryAfter, TelegramError, Tim
 from telegram.ext import (
     Application,
     ApplicationBuilder,
+    ApplicationHandlerStop,
     CallbackQueryHandler,
     ChatMemberHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
     PicklePersistence,
+    TypeHandler,
     filters,
 )
 
@@ -223,6 +225,75 @@ BOT_OWNER_IDS = tuple(
     if str(x).strip().lstrip("+-").isdigit()
 )
 
+# ─────────────────────────────────────────────────────────────
+# DEFAULT BOT MIDDLEWARE CONFIG
+# ─────────────────────────────────────────────────────────────
+# These values are built into the bot, so the middleware works immediately
+# without adding anything to Render/.env. Environment variables with the same
+# names can still override them when you want production-specific tuning.
+#
+# Recommended defaults:
+# - enabled: keep middleware active by default
+# - rate window: 10 seconds
+# - max updates: 18 per user/window
+# - slow update warning: 2.5 seconds
+DEFAULT_MIDDLEWARE_CONFIG: dict[str, int | float | bool] = {
+    "MIDDLEWARE_ENABLED": True,
+    "MIDDLEWARE_LOG_UPDATES": True,
+    "MIDDLEWARE_RATE_LIMIT_ENABLED": True,
+    "MIDDLEWARE_RATE_LIMIT_WINDOW_SECONDS": 10.0,
+    "MIDDLEWARE_RATE_LIMIT_MAX_UPDATES": 18,
+    "MIDDLEWARE_MAX_TRACKED_USERS": 50_000,
+    "MIDDLEWARE_SLOW_UPDATE_SECONDS": 2.5,
+}
+
+# ─────────────────────────────────────────────────────────────
+# DEFAULT PROFESSIONAL UI CONFIG - v3
+# ─────────────────────────────────────────────────────────────
+# Built-in defaults make the bot look polished immediately after deployment.
+# Environment variables can still override the release label/brand without
+# requiring code edits.
+PROFESSIONAL_UI_ENABLED = _env_bool("PROFESSIONAL_UI_ENABLED", True)
+PROFESSIONAL_UI_VERSION = _env_str("PROFESSIONAL_UI_VERSION", "v3") or "v3"
+PROFESSIONAL_BRAND_NAME = _env_str("PROFESSIONAL_BRAND_NAME", "EXE Remover Security Bot") or "EXE Remover Security Bot"
+
+# Lightweight bot middleware controls. PTB has no Express-style middleware,
+# so we register TypeHandler(Update, ...) in early/late handler groups below.
+MIDDLEWARE_ENABLED = _env_bool(
+    "MIDDLEWARE_ENABLED",
+    bool(DEFAULT_MIDDLEWARE_CONFIG["MIDDLEWARE_ENABLED"]),
+)
+MIDDLEWARE_LOG_UPDATES = _env_bool(
+    "MIDDLEWARE_LOG_UPDATES",
+    bool(DEFAULT_MIDDLEWARE_CONFIG["MIDDLEWARE_LOG_UPDATES"]),
+)
+MIDDLEWARE_RATE_LIMIT_ENABLED = _env_bool(
+    "MIDDLEWARE_RATE_LIMIT_ENABLED",
+    bool(DEFAULT_MIDDLEWARE_CONFIG["MIDDLEWARE_RATE_LIMIT_ENABLED"]),
+)
+MIDDLEWARE_RATE_LIMIT_WINDOW_SECONDS = _env_float(
+    "MIDDLEWARE_RATE_LIMIT_WINDOW_SECONDS",
+    float(DEFAULT_MIDDLEWARE_CONFIG["MIDDLEWARE_RATE_LIMIT_WINDOW_SECONDS"]),
+    min_value=1.0,
+)
+MIDDLEWARE_RATE_LIMIT_MAX_UPDATES = _env_int(
+    "MIDDLEWARE_RATE_LIMIT_MAX_UPDATES",
+    int(DEFAULT_MIDDLEWARE_CONFIG["MIDDLEWARE_RATE_LIMIT_MAX_UPDATES"]),
+    min_value=1,
+    max_value=500,
+)
+MIDDLEWARE_MAX_TRACKED_USERS = _env_int(
+    "MIDDLEWARE_MAX_TRACKED_USERS",
+    int(DEFAULT_MIDDLEWARE_CONFIG["MIDDLEWARE_MAX_TRACKED_USERS"]),
+    min_value=100,
+    max_value=500_000,
+)
+MIDDLEWARE_SLOW_UPDATE_SECONDS = _env_float(
+    "MIDDLEWARE_SLOW_UPDATE_SECONDS",
+    float(DEFAULT_MIDDLEWARE_CONFIG["MIDDLEWARE_SLOW_UPDATE_SECONDS"]),
+    min_value=0.1,
+)
+
 ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
 CHAT_TYPES_GROUP = {ChatType.GROUP, ChatType.SUPERGROUP, "group", "supergroup"}
 
@@ -276,6 +347,14 @@ SUPABASE_LAST_SAVE_UTC = "never"
 PENDING_MEMORY_SAVE_TASKS: set[asyncio.Task[Any]] = set()
 GROUPS_PANEL_PAGE_SIZE = _env_int("GROUPS_PANEL_PAGE_SIZE", 8, min_value=5, max_value=10)
 DESTRUCTIVE_CONFIRM_ACTIONS = {"clear", "clear_incidents", "clear_admin_logs"}
+
+# Process-local middleware metrics. Do not put these in bot_data, because
+# bot_data is persisted/deep-copied and high-churn counters cause needless I/O.
+MIDDLEWARE_RATE_BUCKETS: dict[int, list[float]] = {}
+MIDDLEWARE_UPDATE_STARTS: dict[int, float] = {}
+MIDDLEWARE_HANDLED_UPDATES = 0
+MIDDLEWARE_DROPPED_UPDATES = 0
+MIDDLEWARE_LAST_PRUNE_MONOTONIC = 0.0
 
 
 @dataclass(slots=True)
@@ -1342,6 +1421,196 @@ ADMIN_PANEL_V4_TEXTS: dict[str, dict[str, str]] = {
 for _lang, _items in ADMIN_PANEL_V4_TEXTS.items():
     TEXTS.setdefault(_lang, {}).update(_items)
 
+PROFESSIONAL_UI_V3_TEXTS: dict[str, dict[str, str]] = {
+    "en": {
+        "home_title": (
+            "🛡️ <b>{brand}</b> <code>{version}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Status: 🟢 <b>Online</b>\n"
+            "Security mode: <b>Professional Group Protection</b>\n\n"
+            "Protect Telegram groups from <code>.exe</code>, renamed malware-style files, risky archives, and repeat offenders.\n\n"
+            "✅ Auto-delete dangerous uploads\n"
+            "✅ Instant admin alerts with action buttons\n"
+            "✅ Group-specific scanner settings\n"
+            "✅ Trusted hash whitelist for exact safe files\n\n"
+            "Choose an option below."
+        ),
+        "welcome": (
+            "👋 <b>Welcome to {brand}</b> <code>{version}</code>\n\n"
+            "I help protect Telegram groups by removing dangerous executable files, scanning suspicious uploads, and notifying admins instantly.\n\n"
+            "Add me to your group, make me an admin, and enable <b>Delete Messages</b> to start protection."
+        ),
+        "help": (
+            "💡 <b>How {brand} Works</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "1. Add the bot to your group.\n"
+            "2. Grant <b>Delete Messages</b> permission.\n"
+            "3. Open <b>My Protected Groups</b> from this dashboard.\n"
+            "4. Configure scanner rules, blocked formats, trusted hashes, and auto actions.\n\n"
+            "When a risky file is detected, I delete it, notify admins, and provide quick actions: Ban, Warn, Ignore, or View Risk Profile."
+        ),
+        "groups_title": (
+            "👥 <b>My Protected Groups</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Select a group to open its v3 Security Control Center.\n"
+            "🟢 Ready · 🟡 Needs attention · 🔴 No access"
+        ),
+        "groups_empty": (
+            "👥 <b>No Protected Groups Yet</b>\n\n"
+            "Add me to a group, make me an admin, and enable <b>Delete Messages</b>.\n"
+            "After that, return here to manage professional security settings."
+        ),
+        "group_admin_title": (
+            "🛡️ <b>Security Control Center {version}</b>\n"
+            "💬 <b>{group}</b>\n"
+            "<code>{chat_id}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "{health_status}\n"
+            "🛡 Protection: <b>{protection}</b>\n"
+            "🔥 Strictness: <code>{strictness}</code>\n"
+            "🔇 Silent mode: <code>{silent}</code>\n"
+            "🤖 Auto action: <code>{auto_action}</code>\n"
+            "👮 Admin alerts: <code>{admin_ready}</code>/<code>{admin_total}</code> ready\n"
+            "🚨 Open incidents: <code>{open_incidents}</code>\n"
+            "📝 Admin logs: <code>{admin_logs}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🧪 Blocked: <code>{custom_blocked}</code> · Allowed: <code>{allowed}</code>\n"
+            "🔐 Trusted hashes: <code>{trusted_hashes}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Choose a module below."
+        ),
+        "admin_alert": (
+            "🚨 <b>Security Alert</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "A dangerous file was detected and removed.\n\n"
+            "👤 <b>Sender:</b> {sender_name}\n"
+            "🆔 <b>User ID:</b> <code>{sender_id}</code>\n"
+            "📄 <b>File:</b> <code>{file_name}</code>\n"
+            "🧪 <b>Reason:</b> {scan_result}\n"
+            "💬 <b>Group:</b> {group_name} <code>{group_id}</code>\n"
+            "🕒 <b>Time:</b> <code>{time}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Choose an admin action:"
+        ),
+        "btn_language": "🌐 Language",
+        "btn_view_risk_profile": "📋 View Risk Profile",
+        "language_title": "🌐 <b>Choose Dashboard Language</b>\n\nSelect the language used for private dashboards and alerts.",
+        "risk_profile_title": (
+            "📋 <b>User Risk Profile</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "👤 User: {user}\n"
+            "🆔 User ID: <code>{user_id}</code>\n"
+            "💬 Group: <b>{group}</b>\n"
+            "📊 Risk level: <code>{risk}</code>\n"
+            "🚨 Total incidents: <code>{incidents}</code>\n"
+            "⚠️ Warnings: <code>{warns}</code>\n"
+            "🔇 Mutes: <code>{mutes}</code>\n"
+            "🔨 Bans: <code>{bans}</code>\n"
+            "📄 Last file: <code>{last_file}</code>\n"
+            "🕒 Last incident: <code>{last_seen}</code>\n\n"
+            "Recommended action: <b>{recommended}</b>"
+        ),
+        "risk_recommend_warn": "Warn and monitor",
+        "risk_recommend_mute": "Mute if behavior continues",
+        "risk_recommend_ban": "Ban persistent offender",
+    },
+    "km": {
+        "home_title": (
+            "🛡️ <b>{brand}</b> <code>{version}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ស្ថានភាព៖ 🟢 <b>Online</b>\n"
+            "ម៉ូដសុវត្ថិភាព៖ <b>Professional Group Protection</b>\n\n"
+            "ការពារក្រុម Telegram ពី <code>.exe</code>, file បន្លំឈ្មោះ, archive មានហានិភ័យ និងអ្នកល្មើសដដែលៗ។\n\n"
+            "✅ លុប file គ្រោះថ្នាក់ដោយស្វ័យប្រវត្តិ\n"
+            "✅ ជូនដំណឹង Admin ជាមួយប៊ូតុងចាត់ការ\n"
+            "✅ កំណត់ Scanner ផ្សេងគ្នាតាមក្រុម\n"
+            "✅ Trusted hash whitelist សម្រាប់ file សុវត្ថិភាពជាក់លាក់\n\n"
+            "សូមជ្រើសរើសជម្រើសខាងក្រោម។"
+        ),
+        "welcome": (
+            "👋 <b>សូមស្វាគមន៍មកកាន់ {brand}</b> <code>{version}</code>\n\n"
+            "ខ្ញុំជួយការពារក្រុម Telegram ដោយលុប file executable គ្រោះថ្នាក់ ស្កេន upload សង្ស័យ និងជូនដំណឹង Admin ភ្លាមៗ។\n\n"
+            "សូមបន្ថែមខ្ញុំទៅក្នុងក្រុម ដាក់ជាអ្នកគ្រប់គ្រង ហើយបើកសិទ្ធិ <b>Delete Messages</b> ដើម្បីចាប់ផ្តើមការពារ។"
+        ),
+        "help": (
+            "💡 <b>របៀបដំណើរការ {brand}</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "1. បន្ថែម Bot ទៅក្នុងក្រុម។\n"
+            "2. ផ្តល់សិទ្ធិ <b>Delete Messages</b>។\n"
+            "3. បើក <b>My Protected Groups</b> ពី Dashboard នេះ។\n"
+            "4. កំណត់ Scanner rules, blocked formats, trusted hashes និង auto actions។\n\n"
+            "ពេលរកឃើញ file មានហានិភ័យ ខ្ញុំនឹងលុបវា ជូនដំណឹង Admin ហើយផ្តល់ប៊ូតុង Ban, Warn, Ignore ឬ View Risk Profile។"
+        ),
+        "groups_title": (
+            "👥 <b>ក្រុមដែលកំពុងការពារ</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ជ្រើសរើសក្រុម ដើម្បីបើក v3 Security Control Center។\n"
+            "🟢 រួចរាល់ · 🟡 ត្រូវពិនិត្យ · 🔴 មិនអាចចូលបាន"
+        ),
+        "groups_empty": (
+            "👥 <b>មិនទាន់មានក្រុមដែលកំពុងការពារ</b>\n\n"
+            "សូមបន្ថែមខ្ញុំទៅក្នុងក្រុម ដាក់ជាអ្នកគ្រប់គ្រង ហើយបើកសិទ្ធិ <b>Delete Messages</b>។\n"
+            "បន្ទាប់មកត្រឡប់មកទីនេះ ដើម្បីគ្រប់គ្រងការកំណត់សុវត្ថិភាព។"
+        ),
+        "group_admin_title": (
+            "🛡️ <b>Security Control Center {version}</b>\n"
+            "💬 <b>{group}</b>\n"
+            "<code>{chat_id}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "{health_status}\n"
+            "🛡 ការការពារ: <b>{protection}</b>\n"
+            "🔥 កម្រិតតឹងរ៉ឹង: <code>{strictness}</code>\n"
+            "🔇 Silent mode: <code>{silent}</code>\n"
+            "🤖 Auto action: <code>{auto_action}</code>\n"
+            "👮 Admin alerts: <code>{admin_ready}</code>/<code>{admin_total}</code> ready\n"
+            "🚨 ករណីកំពុងបើក: <code>{open_incidents}</code>\n"
+            "📝 Admin logs: <code>{admin_logs}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🧪 Blocked: <code>{custom_blocked}</code> · Allowed: <code>{allowed}</code>\n"
+            "🔐 Trusted hashes: <code>{trusted_hashes}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "សូមជ្រើសរើស module ខាងក្រោម។"
+        ),
+        "admin_alert": (
+            "🚨 <b>Security Alert</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "រកឃើញ និងលុប file មានហានិភ័យរួចហើយ។\n\n"
+            "👤 <b>អ្នកផ្ញើ:</b> {sender_name}\n"
+            "🆔 <b>User ID:</b> <code>{sender_id}</code>\n"
+            "📄 <b>File:</b> <code>{file_name}</code>\n"
+            "🧪 <b>មូលហេតុ:</b> {scan_result}\n"
+            "💬 <b>ក្រុម:</b> {group_name} <code>{group_id}</code>\n"
+            "🕒 <b>ម៉ោង:</b> <code>{time}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "សូមជ្រើសរើសចំណាត់ការ Admin:"
+        ),
+        "btn_language": "🌐 ភាសា",
+        "btn_view_risk_profile": "📋 មើល Risk Profile",
+        "language_title": "🌐 <b>ជ្រើសរើសភាសា Dashboard</b>\n\nសូមជ្រើសរើសភាសាសម្រាប់ Private dashboard និងសារជូនដំណឹង។",
+        "risk_profile_title": (
+            "📋 <b>User Risk Profile</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "👤 User: {user}\n"
+            "🆔 User ID: <code>{user_id}</code>\n"
+            "💬 Group: <b>{group}</b>\n"
+            "📊 Risk level: <code>{risk}</code>\n"
+            "🚨 Incident សរុប: <code>{incidents}</code>\n"
+            "⚠️ Warnings: <code>{warns}</code>\n"
+            "🔇 Mutes: <code>{mutes}</code>\n"
+            "🔨 Bans: <code>{bans}</code>\n"
+            "📄 File ចុងក្រោយ: <code>{last_file}</code>\n"
+            "🕒 Incident ចុងក្រោយ: <code>{last_seen}</code>\n\n"
+            "ចំណាត់ការណែនាំ: <b>{recommended}</b>"
+        ),
+        "risk_recommend_warn": "ព្រមាន ហើយតាមដាន",
+        "risk_recommend_mute": "Mute ប្រសិនបើនៅតែបន្ត",
+        "risk_recommend_ban": "Ban អ្នកល្មើសដដែលៗ",
+    },
+}
+if PROFESSIONAL_UI_ENABLED:
+    for _lang, _items in PROFESSIONAL_UI_V3_TEXTS.items():
+        TEXTS.setdefault(_lang, {}).update(_items)
+
 DEFAULT_GROUP_SETTINGS: dict[str, Any] = {
     "protection_enabled": True,
     "strictness": "standard",  # standard=.exe/PE only, high=all dangerous extensions, strict=high + archive-risk focus
@@ -2235,7 +2504,13 @@ def get_lang(bot_data: dict[str, Any], user_id: int | None) -> str:
 def tr(bot_data: dict[str, Any], user_id: int | None, key: str, **kwargs: Any) -> str:
     lang = get_lang(bot_data, user_id)
     text = TEXTS.get(lang, TEXTS["en"]).get(key, TEXTS["en"].get(key, key))
-    return text.format(**kwargs) if kwargs else text
+    fmt = {"brand": PROFESSIONAL_BRAND_NAME, "version": PROFESSIONAL_UI_VERSION}
+    fmt.update(kwargs)
+    try:
+        return text.format(**fmt)
+    except KeyError:
+        # Defensive fallback for legacy translation strings with incomplete kwargs.
+        return text.format(**kwargs) if kwargs else text
 
 
 def get_groups(bot_data: dict[str, Any], user_id: int) -> list[int]:
@@ -2340,7 +2615,12 @@ def get_group_lang(bot_data: dict[str, Any], chat_id: int | None) -> str:
 def tr_group(bot_data: dict[str, Any], chat_id: int | None, key: str, **kwargs: Any) -> str:
     lang = get_group_lang(bot_data, chat_id)
     text = TEXTS.get(lang, TEXTS["en"]).get(key, TEXTS["en"].get(key, key))
-    return text.format(**kwargs) if kwargs else text
+    fmt = {"brand": PROFESSIONAL_BRAND_NAME, "version": PROFESSIONAL_UI_VERSION}
+    fmt.update(kwargs)
+    try:
+        return text.format(**fmt)
+    except KeyError:
+        return text.format(**kwargs) if kwargs else text
 
 
 async def remember_group(
@@ -3600,7 +3880,8 @@ def action_keyboard(bot_data: dict[str, Any], admin_id: int, ikey: str) -> Inlin
                 InlineKeyboardButton(TEXTS[lang]["btn_ban"], callback_data=f"act:ban:{token}"),
                 InlineKeyboardButton(TEXTS[lang]["btn_warn"], callback_data=f"act:warn:{token}"),
                 InlineKeyboardButton(TEXTS[lang]["btn_ignore"], callback_data=f"act:ignore:{token}"),
-            ]
+            ],
+            [InlineKeyboardButton(tr(bot_data, admin_id, "btn_view_risk_profile"), callback_data=f"act:risk:{token}")],
         ]
     )
 
@@ -4076,7 +4357,10 @@ async def dashboard_home_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: i
             InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=add_url),
             InlineKeyboardButton(tr(context.bot_data, user_id, "btn_help"), callback_data="nav:help"),
         ],
-        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_feedback"), callback_data="nav:feedback")],
+        [
+            InlineKeyboardButton(tr(context.bot_data, user_id, "btn_feedback"), callback_data="nav:feedback"),
+            InlineKeyboardButton(tr(context.bot_data, user_id, "btn_language"), callback_data="nav:language"),
+        ],
     ]
     if int(user_id) in BOT_OWNER_IDS:
         rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_developer"), callback_data="dev:home")])
@@ -4119,6 +4403,14 @@ async def render_home(update: Update, context: ContextTypes.DEFAULT_TYPE, user_i
 
 async def render_help_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
     await send_or_edit_panel(update, tr(context.bot_data, user_id, "help"), dashboard_back_home_keyboard(context.bot_data, user_id))
+
+
+async def render_language_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"), InlineKeyboardButton("🇰🇭 ភាសាខ្មែរ", callback_data="lang_km")],
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
+    ])
+    await send_or_edit_panel(update, tr(context.bot_data, user_id, "language_title"), keyboard)
 
 
 async def render_feedback_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
@@ -5231,6 +5523,11 @@ async def navigation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await clear_pending_user_feedback(context, user_id)
         await render_help_panel(update, context, user_id)
         return
+    if data == "nav:language":
+        await clear_pending_format_edit(context, user_id)
+        await clear_pending_user_feedback(context, user_id)
+        await render_language_panel(update, context, user_id)
+        return
     if data == "nav:feedback":
         await clear_pending_format_edit(context, user_id)
         await render_feedback_prompt(update, context, user_id)
@@ -5956,6 +6253,58 @@ def format_incident_alert_for_admin(bot_data: dict[str, Any], admin_id: int, inc
     return base + handled_footer(bot_data, admin_id, incident)
 
 
+def _format_user_risk_profile(bot_data: dict[str, Any], admin_id: int, incident: dict[str, Any]) -> str:
+    chat_id = int(incident.get("chat_id") or 0)
+    sender_id = int(incident.get("sender_id") or 0)
+    sender_name = str(incident.get("sender_name") or "Unknown")
+    incidents = bot_data.get("incidents", {}) if isinstance(bot_data.get("incidents", {}), dict) else {}
+    user_items = [
+        item for item in incidents.values()
+        if isinstance(item, dict)
+        and str(item.get("chat_id")) == str(chat_id)
+        and str(item.get("sender_id")) == str(sender_id)
+    ]
+    total_incidents = len(user_items) or 1
+    warns = sum(1 for item in user_items if str(item.get("action") or "") == "warn")
+    bans = sum(1 for item in user_items if str(item.get("action") or "") == "ban")
+    mutes = sum(1 for item in user_items if str(item.get("auto_action") or "") == "mute")
+    # Include admin action logs as an additional signal when incidents were already cleaned up.
+    for log in _admin_action_logs(bot_data):
+        if str(log.get("chat_id")) != str(chat_id) or str(log.get("target_id")) != str(sender_id):
+            continue
+        action_text = str(log.get("action") or "").casefold()
+        if "warn" in action_text:
+            warns += 1
+        elif "ban" in action_text:
+            bans += 1
+        elif "mute" in action_text:
+            mutes += 1
+    risk = _risk_badge(max(total_incidents, warns + mutes + bans))
+    if bans or total_incidents >= 3:
+        recommended = tr(bot_data, admin_id, "risk_recommend_ban")
+    elif mutes or total_incidents >= 2:
+        recommended = tr(bot_data, admin_id, "risk_recommend_mute")
+    else:
+        recommended = tr(bot_data, admin_id, "risk_recommend_warn")
+    latest = max(user_items, key=lambda item: _safe_int(item.get("created_at_ms"), 0), default=incident)
+    return tr(
+        bot_data,
+        admin_id,
+        "risk_profile_title",
+        user=user_link(sender_id, sender_name) if sender_id else h(sender_name),
+        user_id=sender_id,
+        group=h(latest.get("group_name") or get_chat_title_from_state(bot_data, chat_id) or chat_id),
+        risk=h(risk),
+        incidents=total_incidents,
+        warns=warns,
+        mutes=mutes,
+        bans=bans,
+        last_file=h(latest.get("file_name") or incident.get("file_name") or "Unknown"),
+        last_seen=h(_format_saved_ms(latest.get("created_at_ms") or incident.get("created_at_ms"))),
+        recommended=h(recommended),
+    )
+
+
 async def send_single_alert(context: ContextTypes.DEFAULT_TYPE, admin_id: int, msg: str, ikey: str, sem: asyncio.Semaphore) -> tuple[int, int] | None:
     async with sem:
         message_id = await safe_send_message(context, admin_id, msg, reply_markup=action_keyboard(context.bot_data, admin_id, ikey))
@@ -6367,7 +6716,7 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await safe_edit_query(query, tr(context.bot_data, admin_id, "unknown_error"))
         return
     _, action, token_or_ikey = parts
-    if action not in {"ban", "warn", "ignore"}:
+    if action not in {"ban", "warn", "ignore", "risk"}:
         await safe_edit_query(query, tr(context.bot_data, admin_id, "unknown_error"))
         return
 
@@ -6380,7 +6729,7 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if not incident:
                 await safe_edit_query(query, tr(context.bot_data, admin_id, "action_expired"))
                 return
-            if incident.get("done"):
+            if incident.get("done") and action != "risk":
                 await safe_edit_query(query, tr(context.bot_data, admin_id, "action_done"))
                 return
             chat_id = int(incident["chat_id"])
@@ -6389,6 +6738,17 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         if not await is_user_admin_in_group(context, chat_id, admin_id, allow_api=True):
             await safe_edit_query(query, tr(context.bot_data, admin_id, "action_not_admin"))
+            return
+
+        if action == "risk":
+            async with BOT_DATA_LOCK:
+                incident = context.bot_data.setdefault("incidents", {}).get(ikey)
+                if not isinstance(incident, dict):
+                    await safe_edit_query(query, tr(context.bot_data, admin_id, "action_expired"))
+                    return
+                profile_text = _format_user_risk_profile(context.bot_data, admin_id, incident)
+                keyboard = action_keyboard(context.bot_data, admin_id, ikey) if not incident.get("done") else None
+            await safe_edit_query(query, profile_text, reply_markup=keyboard)
             return
 
         result_msg = ""
@@ -7194,10 +7554,158 @@ async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"Admin cache: <code>{admin_cache_count}</code>\n"
         f"Bot perm cache: <code>{bot_perm_cache_count}</code>\n"
         f"Chat meta cache: <code>{chat_meta_count}</code>\n"
+        f"Middleware enabled: <code>{MIDDLEWARE_ENABLED}</code>\n"
+        f"Middleware handled: <code>{MIDDLEWARE_HANDLED_UPDATES}</code>\n"
+        f"Middleware dropped: <code>{MIDDLEWARE_DROPPED_UPDATES}</code>\n"
+        f"Middleware buckets: <code>{len(MIDDLEWARE_RATE_BUCKETS)}</code>\n"
         f"Supabase: <code>{'connected' if SUPABASE_AVAILABLE else 'offline/disabled'}</code>\n"
         f"Redis: <code>{'connected' if REDIS_AVAILABLE else 'offline/disabled'}</code>"
     )
     await safe_reply(update, text)
+
+
+def middleware_update_kind(update: Update) -> str:
+    """Return a compact update type for logs/metrics without parsing payload deeply."""
+    if update.callback_query:
+        return "callback_query"
+    if update.message:
+        message = update.message
+        if message.document:
+            return "document"
+        if message.text:
+            return "command" if message.text.startswith("/") else "text"
+        if message.new_chat_members or message.left_chat_member:
+            return "chat_member_message"
+        return "message"
+    if update.my_chat_member:
+        return "my_chat_member"
+    if update.chat_member:
+        return "chat_member"
+    return "update"
+
+
+def prune_middleware_rate_buckets(now: float) -> None:
+    """Bound middleware memory under high traffic."""
+    global MIDDLEWARE_LAST_PRUNE_MONOTONIC
+    if now - MIDDLEWARE_LAST_PRUNE_MONOTONIC < 60.0:
+        return
+    MIDDLEWARE_LAST_PRUNE_MONOTONIC = now
+    cutoff = now - MIDDLEWARE_RATE_LIMIT_WINDOW_SECONDS
+    stale_user_ids: list[int] = []
+    for user_id, bucket in MIDDLEWARE_RATE_BUCKETS.items():
+        bucket[:] = [ts for ts in bucket if ts >= cutoff]
+        if not bucket:
+            stale_user_ids.append(user_id)
+    for user_id in stale_user_ids:
+        MIDDLEWARE_RATE_BUCKETS.pop(user_id, None)
+    if len(MIDDLEWARE_RATE_BUCKETS) > MIDDLEWARE_MAX_TRACKED_USERS:
+        overflow = len(MIDDLEWARE_RATE_BUCKETS) - MIDDLEWARE_MAX_TRACKED_USERS
+        for user_id in list(MIDDLEWARE_RATE_BUCKETS.keys())[:overflow]:
+            MIDDLEWARE_RATE_BUCKETS.pop(user_id, None)
+
+
+async def notify_rate_limited(update: Update) -> None:
+    """Acknowledge callback spam without flooding groups with warning messages."""
+    try:
+        if update.callback_query:
+            await update.callback_query.answer("Too many requests. Please slow down.", show_alert=False)
+    except TelegramError:
+        logger.debug("Could not send middleware rate-limit notice", exc_info=True)
+
+
+async def bot_middleware_pre(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs before all business handlers.
+
+    Responsibilities:
+    - bounded per-user rate limit
+    - structured request logging
+    - start-time tracking for slow update diagnostics
+
+    Raise ApplicationHandlerStop to drop abusive updates before expensive file
+    scanning, admin lookups, Redis/Supabase writes, or Telegram API calls.
+    """
+    global MIDDLEWARE_DROPPED_UPDATES
+
+    if not MIDDLEWARE_ENABLED:
+        return
+
+    now = time.monotonic()
+    update_id = update.update_id
+    if update_id is not None:
+        MIDDLEWARE_UPDATE_STARTS[update_id] = now
+
+    effective_user = update.effective_user
+    effective_chat = update.effective_chat
+    user_id = int(effective_user.id) if effective_user else None
+    chat_id = int(effective_chat.id) if effective_chat else None
+    kind = middleware_update_kind(update)
+
+    if MIDDLEWARE_LOG_UPDATES:
+        logger.debug(
+            "middleware inbound kind=%s update_id=%s chat_id=%s user_id=%s",
+            kind,
+            update_id,
+            chat_id,
+            user_id,
+        )
+
+    if (
+        MIDDLEWARE_RATE_LIMIT_ENABLED
+        and user_id is not None
+        and user_id not in BOT_OWNER_IDS
+    ):
+        prune_middleware_rate_buckets(now)
+        cutoff = now - MIDDLEWARE_RATE_LIMIT_WINDOW_SECONDS
+        bucket = MIDDLEWARE_RATE_BUCKETS.setdefault(user_id, [])
+        bucket[:] = [ts for ts in bucket if ts >= cutoff]
+        bucket.append(now)
+        if len(bucket) > MIDDLEWARE_RATE_LIMIT_MAX_UPDATES:
+            MIDDLEWARE_DROPPED_UPDATES += 1
+            logger.warning(
+                "middleware rate-limited update kind=%s update_id=%s chat_id=%s user_id=%s count=%s window=%ss",
+                kind,
+                update_id,
+                chat_id,
+                user_id,
+                len(bucket),
+                MIDDLEWARE_RATE_LIMIT_WINDOW_SECONDS,
+            )
+            await notify_rate_limited(update)
+            raise ApplicationHandlerStop
+
+
+async def bot_middleware_post(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs after normal handlers to record slow-update diagnostics."""
+    global MIDDLEWARE_HANDLED_UPDATES
+
+    if not MIDDLEWARE_ENABLED:
+        return
+
+    MIDDLEWARE_HANDLED_UPDATES += 1
+    update_id = update.update_id
+    started_at = MIDDLEWARE_UPDATE_STARTS.pop(update_id, None) if update_id is not None else None
+    if started_at is None:
+        return
+
+    elapsed = time.monotonic() - started_at
+    if elapsed >= MIDDLEWARE_SLOW_UPDATE_SECONDS:
+        effective_user = update.effective_user
+        effective_chat = update.effective_chat
+        logger.warning(
+            "slow update kind=%s update_id=%s chat_id=%s user_id=%s elapsed=%.3fs",
+            middleware_update_kind(update),
+            update_id,
+            effective_chat.id if effective_chat else None,
+            effective_user.id if effective_user else None,
+            elapsed,
+        )
+    elif MIDDLEWARE_LOG_UPDATES:
+        logger.debug(
+            "middleware complete kind=%s update_id=%s elapsed=%.3fs",
+            middleware_update_kind(update),
+            update_id,
+            elapsed,
+        )
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -7227,6 +7735,11 @@ def build_application() -> Application:
 
     app = builder.build()
 
+    # Middleware group -100 runs before all command/callback/message handlers.
+    # Middleware group 1000 runs after normal handlers for slow-update metrics.
+    app.add_handler(TypeHandler(Update, bot_middleware_pre), group=-100)
+    app.add_handler(TypeHandler(Update, bot_middleware_post), group=1000)
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("status", status_command))
@@ -7238,7 +7751,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CommandHandler("selftest", selftest_command))
     app.add_handler(CallbackQueryHandler(lang_callback, pattern=r"^lang_(en|km)$"))
-    app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups(?::\d+)?|help|feedback)$"))
+    app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups(?::\d+)?|help|feedback|language)$"))
     app.add_handler(CallbackQueryHandler(developer_dashboard_callback, pattern=r"^dev:(home|refresh|memory|feedback|hash(?::(?:toggle|size(?::\d+)?|limit(?::\d+)?))?|users(?::\d+)?|user:-?\d+|groups(?::\d+)?)$"))
     app.add_handler(CallbackQueryHandler(group_dashboard_callback, pattern=r"^grp:-?\d+$"))
     app.add_handler(CallbackQueryHandler(group_admin_panel_callback, pattern=r"^gap:-?\d+:(protection|scanner|incidents|risk|admins|admin_logs|clear_admin_logs|clear_admin_logs_yes|allowed|health|auto|clear_incidents|clear_incidents_yes|refresh)$"))
@@ -7251,7 +7764,7 @@ def build_application() -> Application:
     app.add_handler(CallbackQueryHandler(delete_trusted_hash_callback, pattern=r"^ghashdel:-?\d+:[a-fA-F0-9]{12}$"))
     app.add_handler(CallbackQueryHandler(auto_actions_callback, pattern=r"^gauto:-?\d+:(off|warn|smart|ban)$"))
     app.add_handler(CallbackQueryHandler(check_perm_callback, pattern=r"^check_perm$"))
-    app.add_handler(CallbackQueryHandler(action_callback, pattern=r"^act:(ban|warn|ignore):.+$"))
+    app.add_handler(CallbackQueryHandler(action_callback, pattern=r"^act:(ban|warn|ignore|risk):.+$"))
     app.add_handler(ChatMemberHandler(my_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.StatusUpdate.MIGRATE, handle_chat_migration))
     app.add_handler(MessageHandler(filters.Document.ALL & filters.ChatType.PRIVATE, private_document_flow_handler))
