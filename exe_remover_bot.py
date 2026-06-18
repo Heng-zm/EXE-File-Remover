@@ -7798,8 +7798,27 @@ def resolve_run_mode() -> str:
 
 
 
+def ensure_main_event_loop() -> None:
+    """Create a default asyncio event loop for PTB on Python 3.14+.
+
+    python-telegram-bot's run_webhook/run_polling still calls
+    asyncio.get_event_loop() internally. On Python 3.14, the default policy
+    raises RuntimeError when no loop has been set, so Render deployments can
+    crash before the webhook starts. We set one explicitly and let PTB own the
+    loop lifecycle after that.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        return
+
+    if loop.is_closed():
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+
 def main() -> None:
-    # PTB run_polling/run_webhook owns loop lifecycle. Do not pre-create or set a loop here.
+    ensure_main_event_loop()
 
     app = build_application()
     mode = resolve_run_mode()
