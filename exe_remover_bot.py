@@ -1658,6 +1658,55 @@ BOT_ADMIN_REQUIRED_TEXTS: dict[str, dict[str, str]] = {
 for _lang, _items in BOT_ADMIN_REQUIRED_TEXTS.items():
     TEXTS.setdefault(_lang, {}).update(_items)
 
+FIRST_TIME_DASHBOARD_TEXTS: dict[str, dict[str, str]] = {
+    "en": {
+        "first_time_home_title": (
+            "🛡️ <b>{brand}</b> <code>{version}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Welcome! No protected groups are linked yet.\n\n"
+            "To start protection, add this bot to your Telegram group, make it an <b>Administrator</b>, and enable <b>Delete Messages</b>.\n\n"
+            "Only the setup buttons are shown until your first group is connected."
+        ),
+        "btn_add_group": "➕ Add Bot To Group",
+        "btn_about": "ℹ️ About",
+        "about_title": (
+            "ℹ️ <b>About {brand}</b> <code>{version}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "This bot protects Telegram groups from dangerous executable uploads such as <code>.exe</code>, renamed malware-style files, risky archives, and repeat offenders.\n\n"
+            "Main features:\n"
+            "✅ Auto-delete dangerous files\n"
+            "✅ Alert admins instantly\n"
+            "✅ Ban / Warn / Ignore action buttons\n"
+            "✅ Group-specific scanner settings\n"
+            "✅ Trusted hash whitelist for exact safe files"
+        ),
+    },
+    "km": {
+        "first_time_home_title": (
+            "🛡️ <b>{brand}</b> <code>{version}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "សូមស្វាគមន៍! មិនទាន់មានក្រុមណាមួយភ្ជាប់នៅឡើយទេ។\n\n"
+            "ដើម្បីចាប់ផ្តើមការពារ សូមបន្ថែម Bot ទៅក្នុងក្រុម Telegram របស់អ្នក ដាក់ជា <b>Administrator</b> ហើយបើកសិទ្ធិ <b>Delete Messages</b>។\n\n"
+            "រហូតដល់មានក្រុមដំបូង ត្រូវបង្ហាញតែប៊ូតុង Setup ប៉ុណ្ណោះ។"
+        ),
+        "btn_add_group": "➕ បន្ថែម Bot ទៅក្រុម",
+        "btn_about": "ℹ️ អំពី Bot",
+        "about_title": (
+            "ℹ️ <b>អំពី {brand}</b> <code>{version}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Bot នេះជួយការពារក្រុម Telegram ពី file executable គ្រោះថ្នាក់ ដូចជា <code>.exe</code>, file បន្លំឈ្មោះ, archive មានហានិភ័យ និងអ្នកល្មើសដដែលៗ។\n\n"
+            "មុខងារសំខាន់ៗ៖\n"
+            "✅ លុប file គ្រោះថ្នាក់ដោយស្វ័យប្រវត្តិ\n"
+            "✅ ជូនដំណឹង Admin ភ្លាមៗ\n"
+            "✅ ប៊ូតុង Ban / Warn / Ignore\n"
+            "✅ កំណត់ Scanner ផ្សេងគ្នាតាមក្រុម\n"
+            "✅ Trusted hash whitelist សម្រាប់ file សុវត្ថិភាពជាក់លាក់"
+        ),
+    },
+}
+for _lang, _items in FIRST_TIME_DASHBOARD_TEXTS.items():
+    TEXTS.setdefault(_lang, {}).update(_items)
+
 DEFAULT_GROUP_SETTINGS: dict[str, Any] = {
     "protection_enabled": True,
     "strictness": "standard",  # standard=.exe/PE only, high=all dangerous extensions, strict=high + archive-risk focus
@@ -4459,7 +4508,25 @@ async def group_private_settings_url(context: ContextTypes.DEFAULT_TYPE, chat_id
     return f"https://t.me/{username}?start=settings_{chat_id}" if username else "https://t.me/"
 
 
+async def dashboard_first_time_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> InlineKeyboardMarkup:
+    """Minimal onboarding keyboard for users with no linked groups yet."""
+    _, username = await get_bot_identity(context.bot)
+    add_url = f"https://t.me/{username}?startgroup=add" if username else "https://t.me/"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=add_url)],
+        [
+            InlineKeyboardButton(tr(context.bot_data, user_id, "btn_about"), callback_data="nav:about"),
+            InlineKeyboardButton(tr(context.bot_data, user_id, "btn_help"), callback_data="nav:help"),
+        ],
+    ])
+
+
 async def dashboard_home_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> InlineKeyboardMarkup:
+    # First-time users should not see Settings/My Groups/Feedback/Language/Refresh
+    # until at least one group has been linked to their account.
+    if not get_groups(context.bot_data, int(user_id)):
+        return await dashboard_first_time_keyboard(context, user_id)
+
     _, username = await get_bot_identity(context.bot)
     add_url = f"https://t.me/{username}?startgroup=add" if username else "https://t.me/"
     rows: list[list[InlineKeyboardButton]] = [
@@ -4509,11 +4576,17 @@ async def reject_group_config_callback(query: Any, bot_data: dict[str, Any], use
 
 
 async def render_home(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
-    await send_or_edit_panel(update, tr(context.bot_data, user_id, "home_title"), await dashboard_home_keyboard(context, user_id))
+    title_key = "home_title" if get_groups(context.bot_data, int(user_id)) else "first_time_home_title"
+    await send_or_edit_panel(update, tr(context.bot_data, user_id, title_key), await dashboard_home_keyboard(context, user_id))
+
+
+async def render_about_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    keyboard = await dashboard_first_time_keyboard(context, user_id) if not get_groups(context.bot_data, int(user_id)) else dashboard_back_home_keyboard(context.bot_data, user_id)
+    await send_or_edit_panel(update, tr(context.bot_data, user_id, "about_title"), keyboard)
 
 
 async def render_help_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")]])
+    keyboard = await dashboard_first_time_keyboard(context, user_id) if not get_groups(context.bot_data, int(user_id)) else InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")]])
     await send_or_edit_panel(update, tr(context.bot_data, user_id, "help"), keyboard)
 
 
@@ -4596,15 +4669,7 @@ async def render_groups_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
         groups = authorized_groups
 
     if not groups:
-        home_kb = await dashboard_home_keyboard(context, user_id)
-        add_url = home_kb.inline_keyboard[1][0].url
-        kb = InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=add_url)],
-                [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
-            ]
-        )
-        await send_or_edit_panel(update, tr(context.bot_data, user_id, "groups_empty"), kb)
+        await send_or_edit_panel(update, tr(context.bot_data, user_id, "groups_empty"), await dashboard_first_time_keyboard(context, user_id))
         return
 
     total = len(groups)
@@ -5640,6 +5705,11 @@ async def navigation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await clear_pending_format_edit(context, user_id)
         await clear_pending_user_feedback(context, user_id)
         await render_help_panel(update, context, user_id)
+        return
+    if data == "nav:about":
+        await clear_pending_format_edit(context, user_id)
+        await clear_pending_user_feedback(context, user_id)
+        await render_about_panel(update, context, user_id)
         return
     if data == "nav:language":
         await clear_pending_format_edit(context, user_id)
