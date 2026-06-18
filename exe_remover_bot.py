@@ -151,6 +151,10 @@ SUPABASE_AUTOSAVE_MIN_INTERVAL_SECONDS = _env_float(
     REDIS_AUTOSAVE_MIN_INTERVAL_SECONDS,
     min_value=0.0,
 )
+# Coalesce rapid settings/callback saves into one durable write. This keeps
+# inline buttons responsive on Render when Redis/Supabase has cold-start or
+# network latency, while force=True still skips backend save intervals.
+MEMORY_SAVE_DEBOUNCE_SECONDS = _env_float("MEMORY_SAVE_DEBOUNCE_SECONDS", 1.25, min_value=0.0)
 
 
 MAX_CONCURRENT_UPDATES = _env_int("MAX_CONCURRENT_UPDATES", 8, min_value=1, max_value=64)
@@ -260,7 +264,7 @@ DEFAULT_MIDDLEWARE_CONFIG: dict[str, int | float | bool] = {
 # Environment variables can still override the release label/brand without
 # requiring code edits.
 PROFESSIONAL_UI_ENABLED = _env_bool("PROFESSIONAL_UI_ENABLED", True)
-PROFESSIONAL_UI_VERSION = _env_str("PROFESSIONAL_UI_VERSION", "v3.1") or "v3.1"
+PROFESSIONAL_UI_VERSION = _env_str("PROFESSIONAL_UI_VERSION", "v3.2") or "v3.2"
 PROFESSIONAL_BRAND_NAME = _env_str("PROFESSIONAL_BRAND_NAME", "EXE Remover Security Bot") or "EXE Remover Security Bot"
 
 # Lightweight bot middleware controls. PTB has no Express-style middleware,
@@ -298,6 +302,11 @@ MIDDLEWARE_SLOW_UPDATE_SECONDS = _env_float(
     "MIDDLEWARE_SLOW_UPDATE_SECONDS",
     float(DEFAULT_MIDDLEWARE_CONFIG["MIDDLEWARE_SLOW_UPDATE_SECONDS"]),
     min_value=0.1,
+)
+MIDDLEWARE_RATE_LIMIT_NOTICE_COOLDOWN_SECONDS = _env_float(
+    "MIDDLEWARE_RATE_LIMIT_NOTICE_COOLDOWN_SECONDS",
+    20.0,
+    min_value=0.0,
 )
 
 ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
@@ -351,12 +360,18 @@ SUPABASE_AVAILABLE = False
 SUPABASE_LAST_SAVE_MONOTONIC = 0.0
 SUPABASE_LAST_SAVE_UTC = "never"
 PENDING_MEMORY_SAVE_TASKS: set[asyncio.Task[Any]] = set()
+PENDING_MEMORY_SAVE_LOCK = asyncio.Lock()
+PENDING_MEMORY_SAVE_PAYLOAD: dict[str, Any] | None = None
+PENDING_MEMORY_SAVE_REASON = "manual"
+PENDING_MEMORY_SAVE_FORCE = False
+PENDING_MEMORY_SAVE_DEBOUNCE_TASK: asyncio.Task[Any] | None = None
 GROUPS_PANEL_PAGE_SIZE = _env_int("GROUPS_PANEL_PAGE_SIZE", 8, min_value=5, max_value=10)
 DESTRUCTIVE_CONFIRM_ACTIONS = {"clear", "clear_incidents", "clear_admin_logs"}
 
 # Process-local middleware metrics. Do not put these in bot_data, because
 # bot_data is persisted/deep-copied and high-churn counters cause needless I/O.
 MIDDLEWARE_RATE_BUCKETS: dict[int, list[float]] = {}
+MIDDLEWARE_RATE_LIMIT_NOTICES: dict[int, float] = {}
 MIDDLEWARE_UPDATE_STARTS: dict[int, float] = {}
 MIDDLEWARE_HANDLED_UPDATES = 0
 MIDDLEWARE_DROPPED_UPDATES = 0
@@ -2290,34 +2305,134 @@ async def save_bot_data_to_redis(
         return False
     return await save_payload_to_redis(payload, reason=reason, force=force)
 
+
 async def _persist_payload_to_backends(payload: dict[str, Any], *, reason: str, force: bool) -> None:
     """Write a snapshot payload to all enabled durable backends."""
     await save_payload_to_supabase(payload, reason=reason, force=force)
     await save_payload_to_redis(payload, reason=reason, force=force)
 
 
-def _schedule_memory_payload_save(context: Any, payload: dict[str, Any], *, reason: str, force: bool) -> None:
-    """Schedule persistence without keeping BOT_DATA_LOCK blocked on network I/O."""
+def _track_memory_save_task(task: asyncio.Task[Any]) -> None:
+    """Track background persistence tasks and log unexpected task failures."""
+    PENDING_MEMORY_SAVE_TASKS.add(task)
+
+    def _done(done_task: asyncio.Task[Any]) -> None:
+        PENDING_MEMORY_SAVE_TASKS.discard(done_task)
+        try:
+            exc = done_task.exception()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Could not inspect memory save task", exc_info=True)
+            return
+        if exc is not None:
+            logger.error("Background memory save task failed", exc_info=(type(exc), exc, exc.__traceback__))
+
+    task.add_done_callback(_done)
+
+
+def _create_app_task(context: Any, coro: Any, *, name: str | None = None) -> asyncio.Task[Any]:
+    """Create a task through PTB when possible, with an asyncio fallback."""
     try:
         app = getattr(context, "application", context)
-        task = app.create_task(_persist_payload_to_backends(payload, reason=reason, force=force))
-        if task is None:
-            task = asyncio.create_task(_persist_payload_to_backends(payload, reason=reason, force=force))
+        task = app.create_task(coro, name=name) if name else app.create_task(coro)
+        if task is not None:
+            return task
+    except TypeError:
+        # Older PTB versions do not accept the name keyword.
+        try:
+            app = getattr(context, "application", context)
+            task = app.create_task(coro)
+            if task is not None:
+                return task
+        except Exception:
+            pass
     except Exception:
-        task = asyncio.create_task(_persist_payload_to_backends(payload, reason=reason, force=force))
-    PENDING_MEMORY_SAVE_TASKS.add(task)
-    task.add_done_callback(PENDING_MEMORY_SAVE_TASKS.discard)
+        pass
+    return asyncio.create_task(coro, name=name)
+
+
+async def _debounced_memory_save_worker(context: Any) -> None:
+    """Persist the most recent pending payload after a short debounce window."""
+    global PENDING_MEMORY_SAVE_PAYLOAD, PENDING_MEMORY_SAVE_REASON, PENDING_MEMORY_SAVE_FORCE, PENDING_MEMORY_SAVE_DEBOUNCE_TASK
+
+    try:
+        if MEMORY_SAVE_DEBOUNCE_SECONDS > 0:
+            await asyncio.sleep(MEMORY_SAVE_DEBOUNCE_SECONDS)
+        async with PENDING_MEMORY_SAVE_LOCK:
+            payload = PENDING_MEMORY_SAVE_PAYLOAD
+            reason = PENDING_MEMORY_SAVE_REASON
+            force = PENDING_MEMORY_SAVE_FORCE
+            PENDING_MEMORY_SAVE_PAYLOAD = None
+            PENDING_MEMORY_SAVE_REASON = "manual"
+            PENDING_MEMORY_SAVE_FORCE = False
+            PENDING_MEMORY_SAVE_DEBOUNCE_TASK = None
+        if payload is not None:
+            await _persist_payload_to_backends(payload, reason=reason, force=force)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Debounced memory save failed", exc_info=True)
+        async with PENDING_MEMORY_SAVE_LOCK:
+            PENDING_MEMORY_SAVE_DEBOUNCE_TASK = None
+
+
+async def _queue_memory_payload_save(context: Any, payload: dict[str, Any], *, reason: str, force: bool) -> None:
+    """Queue the latest snapshot and coalesce rapid saves into one backend write."""
+    global PENDING_MEMORY_SAVE_PAYLOAD, PENDING_MEMORY_SAVE_REASON, PENDING_MEMORY_SAVE_FORCE, PENDING_MEMORY_SAVE_DEBOUNCE_TASK
+
+    async with PENDING_MEMORY_SAVE_LOCK:
+        PENDING_MEMORY_SAVE_PAYLOAD = payload
+        PENDING_MEMORY_SAVE_REASON = reason
+        PENDING_MEMORY_SAVE_FORCE = bool(PENDING_MEMORY_SAVE_FORCE or force)
+        if PENDING_MEMORY_SAVE_DEBOUNCE_TASK is None or PENDING_MEMORY_SAVE_DEBOUNCE_TASK.done():
+            task = _create_app_task(context, _debounced_memory_save_worker(context), name="debounced_memory_save")
+            PENDING_MEMORY_SAVE_DEBOUNCE_TASK = task
+            _track_memory_save_task(task)
+
+
+def _schedule_memory_payload_save(context: Any, payload: dict[str, Any], *, reason: str, force: bool) -> None:
+    """Schedule persistence without keeping BOT_DATA_LOCK blocked on network I/O."""
+    task = _create_app_task(context, _queue_memory_payload_save(context, payload, reason=reason, force=force), name="queue_memory_save")
+    _track_memory_save_task(task)
 
 
 async def drain_pending_memory_saves(timeout: float = 5.0) -> None:
     """Flush best-effort background memory saves before shutdown closes clients."""
-    pending = [task for task in list(PENDING_MEMORY_SAVE_TASKS) if not task.done()]
-    if not pending:
-        return
-    try:
-        await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=timeout)
-    except asyncio.TimeoutError:
-        logger.warning("Timed out while waiting for %s pending memory save task(s)", len(pending))
+    global PENDING_MEMORY_SAVE_PAYLOAD, PENDING_MEMORY_SAVE_REASON, PENDING_MEMORY_SAVE_FORCE, PENDING_MEMORY_SAVE_DEBOUNCE_TASK
+
+    deadline = time.monotonic() + max(0.1, float(timeout))
+    while True:
+        async with PENDING_MEMORY_SAVE_LOCK:
+            payload = PENDING_MEMORY_SAVE_PAYLOAD
+            reason = PENDING_MEMORY_SAVE_REASON
+            force = PENDING_MEMORY_SAVE_FORCE
+            PENDING_MEMORY_SAVE_PAYLOAD = None
+            PENDING_MEMORY_SAVE_REASON = "manual"
+            PENDING_MEMORY_SAVE_FORCE = False
+            debounce_task = PENDING_MEMORY_SAVE_DEBOUNCE_TASK
+            PENDING_MEMORY_SAVE_DEBOUNCE_TASK = None
+        if debounce_task is not None and not debounce_task.done():
+            debounce_task.cancel()
+        if payload is not None:
+            await _persist_payload_to_backends(payload, reason=reason, force=force)
+
+        pending = [task for task in list(PENDING_MEMORY_SAVE_TASKS) if not task.done()]
+        if not pending:
+            async with PENDING_MEMORY_SAVE_LOCK:
+                if PENDING_MEMORY_SAVE_PAYLOAD is None and (PENDING_MEMORY_SAVE_DEBOUNCE_TASK is None or PENDING_MEMORY_SAVE_DEBOUNCE_TASK.done()):
+                    return
+            continue
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            logger.warning("Timed out while waiting for %s pending memory save task(s)", len(pending))
+            return
+        try:
+            await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=remaining)
+        except asyncio.TimeoutError:
+            logger.warning("Timed out while waiting for %s pending memory save task(s)", len(pending))
+            return
 
 
 async def persist_context_memory(
@@ -2329,22 +2444,22 @@ async def persist_context_memory(
 ) -> None:
     """Persist durable bot_data to Supabase/Redis.
 
-    When the caller already holds BOT_DATA_LOCK, this function snapshots the data
-    and schedules the network writes in the background.  That avoids the previous
-    UX bug where button callbacks could feel frozen while Redis/Supabase was slow.
-    Periodic saves and shutdown still await the write path directly.
+    Snapshot once, then write outside BOT_DATA_LOCK. Handler-triggered saves are
+    queued/debounced so repeated button taps do not create a Redis/Supabase storm
+    or make Telegram callbacks feel frozen. Shutdown and periodic jobs can call
+    drain_pending_memory_saves() to flush the latest snapshot.
     """
-    if caller_holds_lock:
-        try:
+    try:
+        if caller_holds_lock:
             payload = export_bot_data_for_storage(context.bot_data)
-        except Exception:
-            logger.exception("Durable memory snapshot failed reason=%s", reason, exc_info=True)
-            return
-        _schedule_memory_payload_save(context, payload, reason=reason, force=force)
+        else:
+            async with BOT_DATA_LOCK:
+                payload = export_bot_data_for_storage(context.bot_data)
+    except Exception:
+        logger.exception("Durable memory snapshot failed reason=%s", reason, exc_info=True)
         return
 
-    await save_bot_data_to_supabase(context.bot_data, reason=reason, force=force, caller_holds_lock=False)
-    await save_bot_data_to_redis(context.bot_data, reason=reason, force=force, caller_holds_lock=False)
+    _schedule_memory_payload_save(context, payload, reason=reason, force=force)
 
 async def close_redis_memory() -> None:
     global REDIS_CLIENT, REDIS_AVAILABLE
@@ -8023,23 +8138,45 @@ def prune_middleware_rate_buckets(now: float) -> None:
     MIDDLEWARE_LAST_PRUNE_MONOTONIC = now
     cutoff = now - MIDDLEWARE_RATE_LIMIT_WINDOW_SECONDS
     stale_user_ids: list[int] = []
-    for user_id, bucket in MIDDLEWARE_RATE_BUCKETS.items():
+    for user_id, bucket in list(MIDDLEWARE_RATE_BUCKETS.items()):
         bucket[:] = [ts for ts in bucket if ts >= cutoff]
         if not bucket:
             stale_user_ids.append(user_id)
     for user_id in stale_user_ids:
         MIDDLEWARE_RATE_BUCKETS.pop(user_id, None)
+
+    notice_cutoff = now - max(MIDDLEWARE_RATE_LIMIT_NOTICE_COOLDOWN_SECONDS, 1.0)
+    for user_id, ts in list(MIDDLEWARE_RATE_LIMIT_NOTICES.items()):
+        if ts < notice_cutoff:
+            MIDDLEWARE_RATE_LIMIT_NOTICES.pop(user_id, None)
+
+    # ApplicationHandlerStop prevents the post-middleware from running, so prune
+    # stale start markers here too. This avoids a tiny memory leak during spam.
+    update_cutoff = now - max(MIDDLEWARE_SLOW_UPDATE_SECONDS * 4, MIDDLEWARE_RATE_LIMIT_WINDOW_SECONDS * 2, 60.0)
+    for update_id, started_at in list(MIDDLEWARE_UPDATE_STARTS.items()):
+        if started_at < update_cutoff:
+            MIDDLEWARE_UPDATE_STARTS.pop(update_id, None)
+
     if len(MIDDLEWARE_RATE_BUCKETS) > MIDDLEWARE_MAX_TRACKED_USERS:
         overflow = len(MIDDLEWARE_RATE_BUCKETS) - MIDDLEWARE_MAX_TRACKED_USERS
         for user_id in list(MIDDLEWARE_RATE_BUCKETS.keys())[:overflow]:
             MIDDLEWARE_RATE_BUCKETS.pop(user_id, None)
+            MIDDLEWARE_RATE_LIMIT_NOTICES.pop(user_id, None)
 
 
 async def notify_rate_limited(update: Update) -> None:
-    """Acknowledge callback spam without flooding groups with warning messages."""
+    """Acknowledge callback spam without flooding users with duplicate alerts."""
+    query = update.callback_query
+    if not query:
+        return
+    user_id = int(query.from_user.id) if query.from_user else 0
+    now = time.monotonic()
+    last_notice = MIDDLEWARE_RATE_LIMIT_NOTICES.get(user_id, 0.0)
+    show_text = (now - last_notice) >= MIDDLEWARE_RATE_LIMIT_NOTICE_COOLDOWN_SECONDS
+    if show_text:
+        MIDDLEWARE_RATE_LIMIT_NOTICES[user_id] = now
     try:
-        if update.callback_query:
-            await update.callback_query.answer("Too many requests. Please slow down.", show_alert=False)
+        await query.answer("Too many requests. Please slow down." if show_text else None, show_alert=False)
     except TelegramError:
         logger.debug("Could not send middleware rate-limit notice", exc_info=True)
 
