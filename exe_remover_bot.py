@@ -260,7 +260,7 @@ DEFAULT_MIDDLEWARE_CONFIG: dict[str, int | float | bool] = {
 # Environment variables can still override the release label/brand without
 # requiring code edits.
 PROFESSIONAL_UI_ENABLED = _env_bool("PROFESSIONAL_UI_ENABLED", True)
-PROFESSIONAL_UI_VERSION = _env_str("PROFESSIONAL_UI_VERSION", "v3") or "v3"
+PROFESSIONAL_UI_VERSION = _env_str("PROFESSIONAL_UI_VERSION", "v3.1") or "v3.1"
 PROFESSIONAL_BRAND_NAME = _env_str("PROFESSIONAL_BRAND_NAME", "EXE Remover Security Bot") or "EXE Remover Security Bot"
 
 # Lightweight bot middleware controls. PTB has no Express-style middleware,
@@ -837,7 +837,8 @@ BUTTON_ONLY_TEXTS: dict[str, dict[str, str]] = {
         "dev_hash_limit_title": "🔢 <b>Choose max trusted hashes per group</b>\n\nCurrent: <code>{max_hashes}</code>",
         "btn_next": "Next ➡️",
         "btn_prev": "⬅️ Prev",
-        "dev_only": "❌ <b>Developer only.</b> Add your Telegram ID to <code>BOT_OWNER_IDS</code> to open this dashboard.",
+        "dev_only": "❌ <b>Developer Dashboard locked.</b> Only bot developers listed in <code>BOT_OWNER_IDS</code> can open this panel. Group admins and normal users cannot access it.",
+        "dev_only_alert": "Developer only. Group admins and normal users cannot access this dashboard.",
         "dev_title": (
             "🧑‍💻 <b>Developer Dashboard</b>\n\n"
             "Users: <code>{users}</code>\n"
@@ -911,7 +912,8 @@ BUTTON_ONLY_TEXTS: dict[str, dict[str, str]] = {
         "dev_hash_limit_title": "🔢 <b>ជ្រើសរើសចំនួន Trusted hashes អតិបរមា ក្នុងមួយក្រុម</b>\n\nបច្ចុប្បន្ន: <code>{max_hashes}</code>",
         "btn_next": "បន្ទាប់ ➡️",
         "btn_prev": "⬅️ ថយក្រោយ",
-        "dev_only": "❌ <b>សម្រាប់តែ Developer ប៉ុណ្ណោះ។</b> សូមបន្ថែម Telegram ID របស់អ្នកទៅក្នុង <code>BOT_OWNER_IDS</code>។",
+        "dev_only": "❌ <b>Developer Dashboard ត្រូវបាន Lock។</b> មានតែ Bot Developer ដែលបានកំណត់ក្នុង <code>BOT_OWNER_IDS</code> ប៉ុណ្ណោះអាចបើក Panel នេះបាន។ Admin ក្រុម និង User ធម្មតា មិនអាចចូលបានទេ។",
+        "dev_only_alert": "សម្រាប់តែ Developer ប៉ុណ្ណោះ។ Admin ក្រុម និង User ធម្មតា មិនអាចចូល Dashboard នេះបានទេ។",
         "dev_title": (
             "🧑‍💻 <b>Developer Dashboard</b>\n\n"
             "អ្នកប្រើប្រាស់ (Users): <code>{users}</code>\n"
@@ -3029,12 +3031,21 @@ async def scan_document(context: ContextTypes.DEFAULT_TYPE, document: Any, *, ch
 
     file_size = int(getattr(document, "file_size", 0) or 0)
     if file_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
-        logger.warning(
-            "Scanner byte/hash analysis disabled; document exceeds Telegram Bot API download limit file_name=%r size=%s limit=%s",
-            file_name,
-            file_size,
-            TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES,
-        )
+        if result.blocked:
+            logger.warning(
+                "Large document blocked by filename/MIME policy without byte download file_name=%r size=%s limit=%s reason=%s",
+                file_name,
+                file_size,
+                TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES,
+                result.reason_code,
+            )
+        else:
+            logger.warning(
+                "Scanner byte/hash analysis disabled; document exceeds Telegram Bot API download limit file_name=%r size=%s limit=%s",
+                file_name,
+                file_size,
+                TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES,
+            )
     can_download_for_hash = bool(
         trusted_hash_whitelist_enabled(context.bot_data)
         and chat_id is not None
@@ -3933,13 +3944,28 @@ async def ensure_bot_settings_unlocked(
 
 
 def bot_admin_required_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
-    """Locked settings buttons shown before the bot has admin/delete rights."""
+    """Locked settings buttons for private chat before bot has admin/delete rights."""
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_add_bot_admin"), url=build_add_group_url_from_state(request_admin=True))],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_check_again"), callback_data=f"grp:{int(chat_id)}")],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_check_again"), callback_data=f"check_perm:{int(chat_id)}")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_quick_health"), callback_data=f"gap:{int(chat_id)}:health")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
+        ]
+    )
+
+
+def bot_admin_required_group_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
+    """Locked settings buttons safe for public group messages.
+
+    Group messages should not show private-only navigation callbacks such as
+    Home/Settings. The only callback here refreshes the permission check for
+    this exact group.
+    """
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_add_bot_admin"), url=build_add_group_url_from_state(request_admin=True))],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_check_again"), callback_data=f"check_perm:{int(chat_id)}")],
         ]
     )
 
@@ -4533,16 +4559,25 @@ async def group_private_settings_url(context: ContextTypes.DEFAULT_TYPE, chat_id
 
 
 async def dashboard_first_time_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> InlineKeyboardMarkup:
-    """Minimal onboarding keyboard for users with no linked groups yet."""
+    """Minimal onboarding keyboard for users with no linked groups yet.
+
+    Normal users and group admins with no linked group see only:
+    Add Bot To Group, About, Help. Bot developers are the only exception;
+    they also get the Developer Dashboard button because that panel is
+    owner-only and independent from group-admin permissions.
+    """
     _, username = await get_bot_identity(context.bot)
     add_url = build_add_group_url(username, request_admin=True)
-    return InlineKeyboardMarkup([
+    rows: list[list[InlineKeyboardButton]] = [
         [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=add_url)],
         [
             InlineKeyboardButton(tr(context.bot_data, user_id, "btn_about"), callback_data="nav:about"),
             InlineKeyboardButton(tr(context.bot_data, user_id, "btn_help"), callback_data="nav:help"),
         ],
-    ])
+    ]
+    if _dev_is_owner(user_id):
+        rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_developer"), callback_data="dev:home")])
+    return InlineKeyboardMarkup(rows)
 
 
 async def dashboard_home_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> InlineKeyboardMarkup:
@@ -4564,7 +4599,7 @@ async def dashboard_home_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: i
             InlineKeyboardButton(tr(context.bot_data, user_id, "btn_language"), callback_data="nav:language"),
         ],
     ]
-    if int(user_id) in BOT_OWNER_IDS:
+    if _dev_is_owner(user_id):
         rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_developer"), callback_data="dev:home")])
     rows.append([InlineKeyboardButton(tr(context.bot_data, user_id, "btn_refresh_dashboard"), callback_data="nav:home")])
     return InlineKeyboardMarkup(rows)
@@ -5346,7 +5381,23 @@ def _developer_back_keyboard(bot_data: dict[str, Any], user_id: int) -> InlineKe
 
 
 def _dev_is_owner(user_id: int) -> bool:
-    return int(user_id) in BOT_OWNER_IDS
+    """Return True only for bot developers configured in BOT_OWNER_IDS.
+
+    This deliberately does NOT check Telegram group-admin status.
+    Group admins can manage only their own group panels; they can never
+    open the bot-level Developer Dashboard unless their Telegram ID is
+    explicitly present in BOT_OWNER_IDS.
+    """
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        return False
+    return bool(BOT_OWNER_IDS) and uid in {int(owner_id) for owner_id in BOT_OWNER_IDS}
+
+
+def _developer_denied_keyboard(bot_data: dict[str, Any], user_id: int) -> InlineKeyboardMarkup:
+    """No group/settings shortcuts on developer-denied screens."""
+    return InlineKeyboardMarkup([[InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")]])
 
 
 def _format_saved_ms(value: Any) -> str:
@@ -5469,6 +5520,13 @@ async def render_developer_feedback_panel(update: Update, context: ContextTypes.
 
 
 async def render_developer_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    if not _dev_is_owner(user_id):
+        await send_or_edit_panel(
+            update,
+            tr(context.bot_data, user_id, "dev_only"),
+            _developer_denied_keyboard(context.bot_data, user_id),
+        )
+        return
     async with BOT_DATA_LOCK:
         users = len(_dev_user_items(context.bot_data))
         groups = len(_dev_group_items(context.bot_data))
@@ -5772,10 +5830,12 @@ async def developer_dashboard_callback(update: Update, context: ContextTypes.DEF
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await safe_answer_callback(query)
     if not _dev_is_owner(user_id):
-        await safe_edit_query(query, tr(context.bot_data, user_id, "dev_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        await safe_answer_callback(query, text=tr(context.bot_data, user_id, "dev_only_alert"), show_alert=True)
+        await safe_edit_query(query, tr(context.bot_data, user_id, "dev_only"), reply_markup=_developer_denied_keyboard(context.bot_data, user_id))
+        logger.warning("Developer dashboard denied user_id=%s callback=%r", user_id, query.data)
         return
+    await safe_answer_callback(query)
 
     data = query.data or "dev:home"
     parts = data.split(":")
@@ -6392,8 +6452,11 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await remember_chat_meta(context.bot_data, chat)
             await link_user_to_group(context, user.id, chat.id, title=chat.title or str(chat.id), chat_type=str(chat.type))
             if not await ensure_bot_settings_unlocked(context, chat.id, force=True):
-                kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user.id, "check_btn"), callback_data="check_perm")]])
-                await safe_reply(update, tr(context.bot_data, user.id, "bot_admin_required_group"), reply_markup=kb)
+                await safe_reply(
+                    update,
+                    tr(context.bot_data, user.id, "bot_admin_required_group"),
+                    reply_markup=bot_admin_required_group_keyboard(context.bot_data, user.id, chat.id),
+                )
                 return
             url = await group_private_settings_url(context, chat.id)
             kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user.id, "btn_settings"), url=url)]])
@@ -6925,53 +6988,109 @@ async def check_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     if not query or not query.from_user:
         return
+    user_id = int(query.from_user.id)
+    data = query.data or "check_perm"
+    target_chat_id = _safe_chat_id_from_payload(data) if data.startswith("check_perm:") else None
+    _, username = await get_bot_identity(context.bot)
+
+    # When the button is pressed from a group, only group admins may run the
+    # permission check, and the check is scoped to that exact group. This avoids
+    # leaking a user's private dashboard/group list into a public chat.
+    if query.message and query.message.chat and is_group_chat(query.message.chat.type):
+        group_chat_id = int(query.message.chat.id)
+        target_chat_id = target_chat_id or group_chat_id
+        if int(target_chat_id) != group_chat_id:
+            await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+            return
+        if not await is_user_admin_in_group(context, group_chat_id, user_id, allow_api=True):
+            await safe_answer_callback(query, text=tr(context.bot_data, user_id, "group_admin_only"), show_alert=True)
+            return
+        await remember_chat_meta(context.bot_data, query.message.chat)
+        await link_user_to_group(
+            context,
+            user_id,
+            group_chat_id,
+            title=getattr(query.message.chat, "title", None) or str(group_chat_id),
+            chat_type=str(getattr(query.message.chat, "type", "group")),
+        )
+
     await safe_answer_callback(query)
 
-    user_id = query.from_user.id
-    _, username = await get_bot_identity(context.bot)
-    retry_kb = InlineKeyboardMarkup([
+    retry_kb_private = InlineKeyboardMarkup([
         [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_bot_admin"), url=build_add_group_url(username, request_admin=True))],
         [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_check_again"), callback_data="check_perm")],
         [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
     ])
-    groups = await get_groups_snapshot(context.bot_data, user_id)
+
+    groups = [int(target_chat_id)] if target_chat_id is not None else await get_groups_snapshot(context.bot_data, user_id)
     if not groups:
-        await safe_edit_query(query, tr(context.bot_data, user_id, "no_group"), reply_markup=retry_kb)
+        await safe_edit_query(query, tr(context.bot_data, user_id, "no_group"), reply_markup=retry_kb_private)
         return
 
-    async def check_one(chat_id: int) -> str | None:
+    async def check_one(chat_id: int) -> tuple[str | None, bool]:
         try:
             title = get_chat_title_from_state(context.bot_data, chat_id)
-            perms = await get_bot_member_cached(context, chat_id)
+            # Force a live permission refresh because this button is commonly
+            # tapped immediately after a group admin changes the bot's rights.
+            perms = await get_bot_member_cached(context, chat_id, force=True, allow_api=True)
             safe_title = h(title)
             if perms.status not in {str(ChatMemberStatus.ADMINISTRATOR), str(ChatMemberStatus.OWNER), "administrator", "creator"}:
-                return f"❌ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'not_admin')}"
+                return f"❌ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'not_admin')}", False
             if not perms.can_delete_messages:
-                return f"⚠️ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'no_delete_perm')}"
-            return f"✅ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'setup_ok', group=safe_title)}"
+                return f"⚠️ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'no_delete_perm')}", False
+            return f"✅ <b>{safe_title}</b>\n{tr(context.bot_data, user_id, 'setup_ok', group=safe_title)}", True
         except (Forbidden, BadRequest) as exc:
             logger.exception("Permission check failed chat_id=%s and group was purged from saved list", chat_id, exc_info=True)
             await purge_group_state(context, chat_id, reason="remove_stale_group")
-            return None
+            return None, False
         except TelegramError as exc:
             logger.exception("Permission check failed chat_id=%s", chat_id, exc_info=True)
-            return None
+            return None, False
 
     sem = asyncio.Semaphore(5)
 
-    async def guarded(chat_id: int) -> str | None:
+    async def guarded(chat_id: int) -> tuple[str | None, bool]:
         async with sem:
             return await check_one(chat_id)
 
     results = await asyncio.gather(*(guarded(chat_id) for chat_id in groups), return_exceptions=True)
     lines: list[str] = []
+    ready_count = 0
     for item in results:
-        if isinstance(item, str) and item:
-            lines.append(item)
+        if isinstance(item, tuple):
+            line, ready = item
+            if line:
+                lines.append(line)
+            if ready:
+                ready_count += 1
         elif isinstance(item, Exception):
             logger.exception("Permission check task failed", exc_info=(type(item), item, item.__traceback__))
 
-    await safe_edit_query(query, "\n\n".join(lines) if lines else tr(context.bot_data, user_id, "no_group"), reply_markup=retry_kb)
+    text = "\n\n".join(lines) if lines else tr(context.bot_data, user_id, "no_group")
+
+    # Public group check: keep buttons public-safe and scoped to the current group.
+    if query.message and query.message.chat and is_group_chat(query.message.chat.type) and target_chat_id is not None:
+        if ready_count:
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user_id, "btn_settings"), url=await group_private_settings_url(context, int(target_chat_id))) ]])
+        else:
+            kb = bot_admin_required_group_keyboard(context.bot_data, user_id, int(target_chat_id))
+        await safe_edit_query(query, text, reply_markup=kb)
+        return
+
+    if target_chat_id is not None:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_check_again"), callback_data=f"check_perm:{int(target_chat_id)}")],
+            [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
+        ])
+        if ready_count:
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_settings"), callback_data=f"grp:{int(target_chat_id)}")],
+                [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
+            ])
+        await safe_edit_query(query, text, reply_markup=kb)
+        return
+
+    await safe_edit_query(query, text, reply_markup=await dashboard_home_keyboard(context, user_id) if ready_count else retry_kb_private)
 
 
 async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -7691,8 +7810,11 @@ async def scanner_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await remember_chat_meta(context.bot_data, chat)
             await link_user_to_group(context, user.id, chat.id, title=chat.title or str(chat.id), chat_type=str(chat.type))
             if not await ensure_bot_settings_unlocked(context, chat.id, force=True):
-                kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user.id, "check_btn"), callback_data="check_perm")]])
-                await safe_reply(update, tr(context.bot_data, user.id, "bot_admin_required_group"), reply_markup=kb)
+                await safe_reply(
+                    update,
+                    tr(context.bot_data, user.id, "bot_admin_required_group"),
+                    reply_markup=bot_admin_required_group_keyboard(context.bot_data, user.id, chat.id),
+                )
                 return
             url = await group_private_settings_url(context, chat.id)
             kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user.id, "btn_settings"), url=url)]])
@@ -8060,7 +8182,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CommandHandler("selftest", selftest_command))
     app.add_handler(CallbackQueryHandler(lang_callback, pattern=r"^lang_(en|km)$"))
-    app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups(?::\d+)?|help|feedback|language)$"))
+    app.add_handler(CallbackQueryHandler(navigation_callback, pattern=r"^nav:(home|groups(?::\d+)?|help|about|feedback|language)$"))
     app.add_handler(CallbackQueryHandler(developer_dashboard_callback, pattern=r"^dev:(home|refresh|memory|feedback|hash(?::(?:toggle|size(?::\d+)?|limit(?::\d+)?))?|users(?::\d+)?|user:-?\d+|groups(?::\d+)?)$"))
     app.add_handler(CallbackQueryHandler(group_dashboard_callback, pattern=r"^grp:-?\d+$"))
     app.add_handler(CallbackQueryHandler(group_admin_panel_callback, pattern=r"^gap:-?\d+:(protection|scanner|incidents|risk|admins|admin_logs|clear_admin_logs|clear_admin_logs_yes|allowed|health|auto|clear_incidents|clear_incidents_yes|refresh)$"))
@@ -8072,7 +8194,7 @@ def build_application() -> Application:
     app.add_handler(CallbackQueryHandler(trusted_hash_callback, pattern=r"^ghash:-?\d+:(menu|add|remove|clear|clear_yes)$"))
     app.add_handler(CallbackQueryHandler(delete_trusted_hash_callback, pattern=r"^ghashdel:-?\d+:[a-fA-F0-9]{12}$"))
     app.add_handler(CallbackQueryHandler(auto_actions_callback, pattern=r"^gauto:-?\d+:(off|warn|smart|ban)$"))
-    app.add_handler(CallbackQueryHandler(check_perm_callback, pattern=r"^check_perm$"))
+    app.add_handler(CallbackQueryHandler(check_perm_callback, pattern=r"^check_perm(?::-?\d+)?$"))
     app.add_handler(CallbackQueryHandler(action_callback, pattern=r"^act:(ban|warn|ignore|risk):.+$"))
     app.add_handler(ChatMemberHandler(my_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.StatusUpdate.MIGRATE, handle_chat_migration))
