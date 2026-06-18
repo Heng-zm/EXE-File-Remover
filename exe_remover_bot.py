@@ -4402,7 +4402,8 @@ async def render_home(update: Update, context: ContextTypes.DEFAULT_TYPE, user_i
 
 
 async def render_help_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
-    await send_or_edit_panel(update, tr(context.bot_data, user_id, "help"), dashboard_back_home_keyboard(context.bot_data, user_id))
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")]])
+    await send_or_edit_panel(update, tr(context.bot_data, user_id, "help"), keyboard)
 
 
 async def render_language_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
@@ -4578,10 +4579,7 @@ def group_settings_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int
                 InlineKeyboardButton(tr(bot_data, user_id, "btn_incidents_short"), callback_data=f"gap:{chat_id}:incidents"),
                 InlineKeyboardButton(tr(bot_data, user_id, "btn_risk_users"), callback_data=f"gap:{chat_id}:risk"),
             ],
-            [
-                InlineKeyboardButton(tr(bot_data, user_id, "btn_admin_logs"), callback_data=f"gap:{chat_id}:admin_logs"),
-                InlineKeyboardButton(f"🤖 {auto_mode}", callback_data=f"gap:{chat_id}:auto"),
-            ],
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_admin_logs"), callback_data=f"gap:{chat_id}:admin_logs")],
             [
                 InlineKeyboardButton(tr(bot_data, user_id, "btn_blocked_formats_short"), callback_data=f"gfmt:{chat_id}:menu"),
                 InlineKeyboardButton(tr(bot_data, user_id, "btn_allowed_formats_short"), callback_data=f"gallow:{chat_id}:menu"),
@@ -5532,9 +5530,6 @@ async def navigation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await clear_pending_format_edit(context, user_id)
         await render_feedback_prompt(update, context, user_id)
         return
-    if not await is_admin_or_owner(context, user_id, allow_api=False):
-        await safe_edit_query(query, tr(context.bot_data, user_id, "access_denied"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
-        return
     if data.startswith("nav:groups"):
         await clear_pending_format_edit(context, user_id)
         await clear_pending_user_feedback(context, user_id)
@@ -5546,10 +5541,13 @@ async def navigation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             except ValueError:
                 page = 0
         await render_groups_panel(update, context, user_id, page=page)
-    else:
-        await clear_pending_format_edit(context, user_id)
-        await clear_pending_user_feedback(context, user_id)
-        await render_home(update, context, user_id)
+        return
+    if not await is_admin_or_owner(context, user_id, allow_api=False):
+        await safe_edit_query(query, tr(context.bot_data, user_id, "access_denied"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
+        return
+    await clear_pending_format_edit(context, user_id)
+    await clear_pending_user_feedback(context, user_id)
+    await render_home(update, context, user_id)
 
 
 async def developer_dashboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -6015,12 +6013,12 @@ async def private_text_flow_handler(update: Update, context: ContextTypes.DEFAUL
     if not user or not message or not chat or chat.type != ChatType.PRIVATE:
         return
 
+    text = (message.text or "").strip()
     async with BOT_DATA_LOCK:
         user_state = context.bot_data.get("user_state", {})
         state = (user_state.get(user.id) or user_state.get(str(user.id)) or {}) if isinstance(user_state, dict) else {}
         pending_feedback = isinstance(state, dict) and isinstance(state.get("pending_user_feedback"), dict)
         pending = dict(state.get("pending_format_edit")) if isinstance(state, dict) and isinstance(state.get("pending_format_edit"), dict) else None
-    text = (message.text or "").strip()
 
     if pending_feedback:
         if text.casefold() in {"/cancel", "cancel", "បោះបង់"}:
@@ -6048,28 +6046,32 @@ async def private_text_flow_handler(update: Update, context: ContextTypes.DEFAUL
         await clear_pending_format_edit(context, user.id)
         await safe_reply(update, tr(context.bot_data, user.id, "unknown_error"), reply_markup=await dashboard_home_keyboard(context, user.id))
         return
-    mode = str(pending.get("mode") or "add")
 
     if not await is_user_admin_in_group(context, chat_id, user.id, allow_api=True):
         await clear_pending_format_edit(context, user.id)
         await safe_reply(update, tr(context.bot_data, user.id, "group_admin_only"), reply_markup=await dashboard_home_keyboard(context, user.id))
         return
 
+    mode = str(pending.get("mode") or "add")
+
     if mode == "hash_add":
         digest = normalize_sha256_hash(text)
         if not digest:
             await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_invalid"))
             return
+
         limit_reached = False
         async with BOT_DATA_LOCK:
             settings = get_group_settings(context.bot_data, chat_id)
-            if digest not in settings.get("trusted_file_hashes", []) and len(settings.get("trusted_file_hashes", [])) >= max_trusted_file_hashes(context.bot_data):
+            hashes = settings.get("trusted_file_hashes", [])
+            if digest not in hashes and len(hashes) >= max_trusted_file_hashes(context.bot_data):
                 limit_reached = True
             else:
                 add_trusted_file_hash(context.bot_data, chat_id, digest, added_by=user.id, file_name="manual hash")
                 state = get_user_state(context.bot_data, user.id)
                 state.pop("pending_format_edit", None)
                 await persist_context_memory(context, reason="trusted_hash_add_manual", force=True, caller_holds_lock=True)
+
         if limit_reached:
             await safe_reply(update, tr(context.bot_data, user.id, "trusted_hash_limit"))
             return
@@ -6080,21 +6082,26 @@ async def private_text_flow_handler(update: Update, context: ContextTypes.DEFAUL
     if not parsed:
         await safe_reply(update, tr(context.bot_data, user.id, "formats_invalid"))
         return
+
     if mode in {"allow_add", "allow_edit"}:
         parsed = _dedupe_allowed_extensions(parsed, limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
         if not parsed:
             await safe_reply(update, tr(context.bot_data, user.id, "allowed_invalid"))
             return
+    else:
+        parsed = _dedupe_valid_extensions(parsed, limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
+        if not parsed:
+            await safe_reply(update, tr(context.bot_data, user.id, "formats_invalid"))
+            return
 
     async with BOT_DATA_LOCK:
         settings = get_group_settings(context.bot_data, chat_id)
         if mode in {"allow_add", "allow_edit"}:
-            parsed_allowed = parsed
             current = settings.get("allowed_extensions", [])
             if mode == "allow_edit":
-                settings["allowed_extensions"] = parsed_allowed[:MAX_CUSTOM_BLOCKED_EXTENSIONS]
+                settings["allowed_extensions"] = parsed[:MAX_CUSTOM_BLOCKED_EXTENSIONS]
             else:
-                settings["allowed_extensions"] = _dedupe_allowed_extensions([*current, *parsed_allowed], limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
+                settings["allowed_extensions"] = _dedupe_allowed_extensions([*current, *parsed], limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
             save_reason = "allowed_formats_save"
         else:
             current = settings.get("custom_blocked_extensions", [])
@@ -6103,6 +6110,7 @@ async def private_text_flow_handler(update: Update, context: ContextTypes.DEFAUL
             else:
                 settings["custom_blocked_extensions"] = _dedupe_valid_extensions([*current, *parsed], limit=MAX_CUSTOM_BLOCKED_EXTENSIONS)
             save_reason = "custom_formats_save"
+
         state = get_user_state(context.bot_data, user.id)
         state.pop("pending_format_edit", None)
         groups = state.setdefault("groups", [])
