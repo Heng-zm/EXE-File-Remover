@@ -418,11 +418,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "no_group": "⚠️ I haven't detected your group yet. Add me to a group first, then click <b>Check My Permissions</b>.",
         "not_admin": (
             "❌ <b>I’m not an admin in your group yet.</b>\n\n"
-            "Go to Group Settings → Administrators → Add Member → select me, and enable <b>Delete Messages</b>."
+            "Tap <b>➕ Add Bot as Admin</b> below, or go to Group Settings → Administrators → Add Member → select me, and enable <b>Delete Messages</b>."
         ),
         "no_delete_perm": (
             "⚠️ <b>I’m an admin, but I don't have permission to delete messages.</b>\n\n"
-            "Please enable the <b>Delete Messages</b> permission for me."
+            "Tap <b>➕ Add Bot as Admin</b> below again, or enable <b>Delete Messages</b> permission for me manually."
         ),
         "setup_ok": (
             "🎉 <b>Awesome! I’m ready.</b>\n\n"
@@ -522,11 +522,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "no_group": "⚠️ ខ្ញុំមិនទាន់រកឃើញក្រុមរបស់អ្នកទេ។ សូមបន្ថែមខ្ញុំចូលក្រុមជាមុនសិន រួចចុច <b>ពិនិត្យមើលសិទ្ធិរបស់ខ្ញុំ</b>។",
         "not_admin": (
             "❌ <b>ខ្ញុំមិនទាន់មានសិទ្ធិជា Admin នៅក្នុងក្រុមរបស់អ្នកនៅឡើយទេ។</b>\n\n"
-            "សូមចូលទៅកាន់ Group Settings → Administrators → Add Member → ជ្រើសរើសឈ្មោះខ្ញុំ រួចបើកសិទ្ធិ <b>Delete Messages</b>។"
+            "ចុចប៊ូតុង <b>➕ ដាក់ Bot ជា Admin</b> ខាងក្រោម ឬចូលទៅកាន់ Group Settings → Administrators → Add Member → ជ្រើសរើសឈ្មោះខ្ញុំ រួចបើកសិទ្ធិ <b>Delete Messages</b>។"
         ),
         "no_delete_perm": (
             "⚠️ <b>ខ្ញុំជា Admin ប៉ុន្តែមិនទាន់មានសិទ្ធិលុបសារនៅឡើយទេ។</b>\n\n"
-            "សូមជួយបើកសិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំផង។"
+            "ចុចប៊ូតុង <b>➕ ដាក់ Bot ជា Admin</b> ខាងក្រោមម្តងទៀត ឬបើកសិទ្ធិ <b>Delete Messages</b> ឱ្យខ្ញុំដោយដៃ។"
         ),
         "setup_ok": (
             "🎉 <b>អស្ចារ្យណាស់! ខ្ញុំរួចរាល់ហើយ។</b>\n\n"
@@ -1627,9 +1627,10 @@ BOT_ADMIN_REQUIRED_TEXTS: dict[str, dict[str, str]] = {
             "Delete Messages: {can_delete}\n"
             "Restrict/Ban Users: {can_restrict}\n\n"
             "To unlock the Settings button, a group admin must add this bot as an <b>Administrator</b> and enable <b>Delete Messages</b>.\n\n"
-            "After updating permissions in Telegram, tap <b>Check Again</b>."
+            "Tap <b>Add Bot as Admin</b>, then return here and tap <b>Check Again</b>."
         ),
         "btn_check_again": "🔄 Check Again",
+        "btn_add_bot_admin": "➕ Add Bot as Admin",
         "bot_admin_required_group": (
             "🔒 <b>Settings are locked.</b>\n\n"
             "Please add me as a group <b>Administrator</b> and enable <b>Delete Messages</b>. "
@@ -1645,9 +1646,10 @@ BOT_ADMIN_REQUIRED_TEXTS: dict[str, dict[str, str]] = {
             "សិទ្ធិ Delete Messages: {can_delete}\n"
             "សិទ្ធិ Restrict/Ban Users: {can_restrict}\n\n"
             "ដើម្បីបើកប៊ូតុង Settings ម្ចាស់/Admin ក្រុមត្រូវដាក់ Bot ជា <b>Administrator</b> ហើយបើកសិទ្ធិ <b>Delete Messages</b>។\n\n"
-            "បន្ទាប់ពីកែ Permission នៅ Telegram សូមចុច <b>Check Again</b>។"
+            "ចុច <b>ដាក់ Bot ជា Admin</b> រួចត្រឡប់មកចុច <b>ពិនិត្យម្តងទៀត</b>។"
         ),
         "btn_check_again": "🔄 ពិនិត្យម្តងទៀត",
+        "btn_add_bot_admin": "➕ ដាក់ Bot ជា Admin",
         "bot_admin_required_group": (
             "🔒 <b>Settings ត្រូវបាន Lock។</b>\n\n"
             "សូមដាក់ខ្ញុំជា <b>Administrator</b> ក្នុងក្រុម ហើយបើកសិទ្ធិ <b>Delete Messages</b>។ "
@@ -3374,6 +3376,27 @@ async def get_bot_identity(bot: Any) -> tuple[int, str]:
     return BOT_ID, BOT_USERNAME
 
 
+def build_add_group_url(username: str | None = None, *, request_admin: bool = True) -> str:
+    """Build a Telegram add-to-group URL.
+
+    When request_admin=True, Telegram opens the add flow with the key
+    permissions the security bot needs. Some Telegram clients may ignore the
+    admin parameter, so the locked panel still tells admins to enable Delete
+    Messages manually.
+    """
+    uname = (username or BOT_USERNAME or "").strip().lstrip("@")
+    if not uname:
+        return "https://t.me/"
+    base = f"https://t.me/{uname}?startgroup=add"
+    if request_admin:
+        return base + "&admin=delete_messages+restrict_members"
+    return base
+
+
+def build_add_group_url_from_state(*, request_admin: bool = True) -> str:
+    return build_add_group_url(BOT_USERNAME, request_admin=request_admin)
+
+
 def _cache_now_ms() -> int:
     # Wall-clock milliseconds survive restarts better than time.monotonic() when
     # cache metadata is kept in bot_data / persistence.
@@ -3910,11 +3933,12 @@ async def ensure_bot_settings_unlocked(
 
 
 def bot_admin_required_keyboard(bot_data: dict[str, Any], user_id: int, chat_id: int) -> InlineKeyboardMarkup:
+    """Locked settings buttons shown before the bot has admin/delete rights."""
     return InlineKeyboardMarkup(
         [
+            [InlineKeyboardButton(tr(bot_data, user_id, "btn_add_bot_admin"), url=build_add_group_url_from_state(request_admin=True))],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_check_again"), callback_data=f"grp:{int(chat_id)}")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_quick_health"), callback_data=f"gap:{int(chat_id)}:health")],
-            [InlineKeyboardButton(tr(bot_data, user_id, "btn_back"), callback_data="nav:groups")],
             [InlineKeyboardButton(tr(bot_data, user_id, "btn_home"), callback_data="nav:home")],
         ]
     )
@@ -3967,7 +3991,7 @@ def language_keyboard() -> InlineKeyboardMarkup:
 
 async def setup_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> InlineKeyboardMarkup:
     _, username = await get_bot_identity(context.bot)
-    add_url = f"https://t.me/{username}?startgroup=add" if username else "https://t.me/"
+    add_url = build_add_group_url(username, request_admin=True)
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton(tr(context.bot_data, user_id, "add_btn"), url=add_url)],
@@ -4511,7 +4535,7 @@ async def group_private_settings_url(context: ContextTypes.DEFAULT_TYPE, chat_id
 async def dashboard_first_time_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> InlineKeyboardMarkup:
     """Minimal onboarding keyboard for users with no linked groups yet."""
     _, username = await get_bot_identity(context.bot)
-    add_url = f"https://t.me/{username}?startgroup=add" if username else "https://t.me/"
+    add_url = build_add_group_url(username, request_admin=True)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_group"), url=add_url)],
         [
@@ -4528,7 +4552,7 @@ async def dashboard_home_keyboard(context: ContextTypes.DEFAULT_TYPE, user_id: i
         return await dashboard_first_time_keyboard(context, user_id)
 
     _, username = await get_bot_identity(context.bot)
-    add_url = f"https://t.me/{username}?startgroup=add" if username else "https://t.me/"
+    add_url = build_add_group_url(username, request_admin=True)
     rows: list[list[InlineKeyboardButton]] = [
         [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_open_groups"), callback_data="nav:groups")],
         [
@@ -6904,7 +6928,12 @@ async def check_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await safe_answer_callback(query)
 
     user_id = query.from_user.id
-    retry_kb = InlineKeyboardMarkup([[InlineKeyboardButton(tr(context.bot_data, user_id, "check_btn"), callback_data="check_perm")]])
+    _, username = await get_bot_identity(context.bot)
+    retry_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_bot_admin"), url=build_add_group_url(username, request_admin=True))],
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_check_again"), callback_data="check_perm")],
+        [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_home"), callback_data="nav:home")],
+    ])
     groups = await get_groups_snapshot(context.bot_data, user_id)
     if not groups:
         await safe_edit_query(query, tr(context.bot_data, user_id, "no_group"), reply_markup=retry_kb)
@@ -7330,6 +7359,8 @@ async def my_chat_member_update(update: Update, context: ContextTypes.DEFAULT_TY
         rows: list[list[InlineKeyboardButton]] = []
         if is_admin and can_delete:
             rows.append([InlineKeyboardButton(tr(context.bot_data, adder.id, "btn_settings"), callback_data=f"grp:{chat.id}")])
+        else:
+            rows.append([InlineKeyboardButton(tr(context.bot_data, adder.id, "btn_add_bot_admin"), url=build_add_group_url_from_state(request_admin=True))])
         rows.append([InlineKeyboardButton(tr(context.bot_data, adder.id, "check_btn"), callback_data="check_perm")])
         rows.append([InlineKeyboardButton(tr(context.bot_data, adder.id, "btn_home"), callback_data="nav:home")])
         kb = InlineKeyboardMarkup(rows)
