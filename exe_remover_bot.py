@@ -295,6 +295,15 @@ SERVER_LOG_CAPTURE_DEBUG = _env_bool("SERVER_LOG_CAPTURE_DEBUG", False)
 SERVER_LOG_VALUE_MAX_CHARS = _env_int("SERVER_LOG_VALUE_MAX_CHARS", 800, min_value=80, max_value=5000)
 SERVER_LOG_TRACEBACK_MAX_CHARS = _env_int("SERVER_LOG_TRACEBACK_MAX_CHARS", 2500, min_value=300, max_value=20_000)
 SERVER_LOG_SLOW_API_MS = _env_int("SERVER_LOG_SLOW_API_MS", 1500, min_value=100, max_value=120_000)
+# Optional standalone auth for /api/server/log. This lets a browser, Vercel
+# dashboard, Postman, or curl read logs without Telegram Mini App initData.
+# Keep this secret. Do not put it in public frontend code unless the page is
+# private/protected by your own backend. Telegram owner initData auth still works
+# when SERVER_LOG_ALLOW_TELEGRAM_OWNER_AUTH=true.
+SERVER_LOG_API_KEY = _env_str("SERVER_LOG_API_KEY") or _env_str("SERVER_LOG_TOKEN")
+SERVER_LOG_ALLOW_TELEGRAM_OWNER_AUTH = _env_bool("SERVER_LOG_ALLOW_TELEGRAM_OWNER_AUTH", True)
+SERVER_LOG_AUTH_QUERY_ENABLED = _env_bool("SERVER_LOG_AUTH_QUERY_ENABLED", True)
+SERVER_LOG_PUBLIC_ACCESS = _env_bool("SERVER_LOG_PUBLIC_ACCESS", False)
 
 # ─────────────────────────────────────────────────────────────
 # DEFAULT BOT MIDDLEWARE CONFIG
@@ -508,6 +517,10 @@ def _server_log_safe_text(value: Any, *, max_chars: int | None = None) -> str:
     )
     for pattern in secret_patterns:
         text = re.sub(pattern, r"\1=<redacted>", text)
+
+    for secret_value in (BOT_TOKEN, WEBHOOK_SECRET_TOKEN, SERVER_LOG_API_KEY, SUPABASE_SERVICE_ROLE_KEY, REDIS_STATE_SIGNING_SECRET):
+        if secret_value:
+            text = text.replace(str(secret_value), "<redacted>")
 
     text = text.replace(chr(0), "").strip()
     if len(text) > limit:
@@ -8742,6 +8755,75 @@ async def _api_require_owner(principal: MiniAppPrincipal) -> None:
         _api_raise(403, "developer access required")
 
 
+def _api_extract_server_log_api_key(request: Any) -> str:
+    """Extract standalone /api/server/log key from header/query.
+
+    Supported forms:
+    - X-Server-Log-Key: <key>
+    - X-API-Key: <key>
+    - Authorization: Bearer <key>
+    - ?server_log_key=<key> or ?key=<key> when SERVER_LOG_AUTH_QUERY_ENABLED=true
+    """
+    headers = getattr(request, "headers", {}) or {}
+    for header_name in ("x-server-log-key", "X-Server-Log-Key", "x-api-key", "X-API-Key"):
+        value = str(headers.get(header_name) or "").strip()
+        if value:
+            return value
+
+    authorization = str(headers.get("authorization") or headers.get("Authorization") or "").strip()
+    if authorization:
+        lower = authorization.casefold()
+        if lower.startswith("bearer "):
+            return authorization[7:].strip()
+        if lower.startswith("serverlog "):
+            return authorization[10:].strip()
+
+    if SERVER_LOG_AUTH_QUERY_ENABLED:
+        query_params = getattr(request, "query_params", {}) or {}
+        for key_name in ("server_log_key", "log_key", "api_key", "key"):
+            value = str(query_params.get(key_name) or "").strip()
+            if value:
+                return value
+    return ""
+
+
+def _server_log_api_key_valid(value: str) -> bool:
+    configured = str(SERVER_LOG_API_KEY or "").strip()
+    provided = str(value or "").strip()
+    if not configured or not provided:
+        return False
+    return hmac.compare_digest(provided, configured)
+
+
+async def _api_require_server_log_access(request: Any) -> dict[str, Any]:
+    """Authorize /api/server/log without requiring Telegram Mini App initData.
+
+    Best production mode is SERVER_LOG_API_KEY. Telegram owner auth remains
+    accepted for Mini App developer pages, but plain external API clients can
+    use X-Server-Log-Key or Authorization: Bearer.
+    """
+    if SERVER_LOG_PUBLIC_ACCESS:
+        return {"mode": "public", "user_id": None, "name": "public"}
+
+    provided_key = _api_extract_server_log_api_key(request)
+    if _server_log_api_key_valid(provided_key):
+        return {"mode": "api_key", "user_id": None, "name": "server_log_api_key"}
+
+    # Preserve old behavior for the Telegram Mini App developer dashboard.
+    # We only attempt Telegram validation when initData is actually present,
+    # so curl/Postman requests without initData receive a clear API-key error.
+    if SERVER_LOG_ALLOW_TELEGRAM_OWNER_AUTH:
+        init_data = await _extract_init_data_from_request(request)
+        if init_data:
+            principal = validate_telegram_webapp_init_data(init_data)
+            await _api_require_owner(principal)
+            return {"mode": "telegram_owner", "user_id": principal.user_id, "name": _api_full_name(principal.user)}
+
+    if SERVER_LOG_API_KEY:
+        _api_raise(401, "missing or invalid server log API key")
+    _api_raise(503, "SERVER_LOG_API_KEY is not configured; set it in Render env to use /api/server/log without Telegram initData")
+
+
 async def _api_require_group_admin(
     application: Application,
     principal: MiniAppPrincipal,
@@ -9539,11 +9621,11 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
     @api.get(f"{MINI_APP_API_PREFIX}/server/log")
     @api.get(f"{MINI_APP_API_PREFIX}/server/logs")
     async def api_server_log(request: Request, limit: int = 200, level: str = "all", category: str = "all", since_id: int = 0) -> dict[str, Any]:
-        principal = await _api_principal_from_request(request)
-        await _api_require_owner(principal)
+        auth_info = await _api_require_server_log_access(request)
         rows = server_log_snapshot(limit=limit, level=level, category=category, since_id=since_id)
         return {
             "ok": True,
+            "auth": {"mode": auth_info.get("mode")},
             "logs": _api_json_safe(rows),
             "total": len(rows),
             "filters": {"limit": limit, "level": level, "category": category, "since_id": since_id},
@@ -9558,11 +9640,17 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
     @api.delete(f"{MINI_APP_API_PREFIX}/server/log")
     @api.delete(f"{MINI_APP_API_PREFIX}/server/logs")
     async def api_clear_server_log(request: Request) -> dict[str, Any]:
-        principal = await _api_principal_from_request(request)
-        await _api_require_owner(principal)
+        auth_info = await _api_require_server_log_access(request)
         clear_server_logs()
-        server_log_event("process", "warning", "server logs cleared", user_id=principal.user_id, name=_api_full_name(principal.user))
-        return {"ok": True, "message": "server logs cleared", "counters": server_log_counters()}
+        server_log_event(
+            "process",
+            "warning",
+            "server logs cleared",
+            auth_mode=auth_info.get("mode"),
+            user_id=auth_info.get("user_id"),
+            name=auth_info.get("name"),
+        )
+        return {"ok": True, "message": "server logs cleared", "auth": {"mode": auth_info.get("mode")}, "counters": server_log_counters()}
 
     @api.get(f"{MINI_APP_API_PREFIX}/developer/overview")
     async def api_developer_overview(request: Request) -> dict[str, Any]:
