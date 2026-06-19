@@ -8115,23 +8115,116 @@ def _telegram_secret_token_for_webhook() -> str | None:
     return WEBHOOK_SECRET_TOKEN if _valid_webhook_secret_token(WEBHOOK_SECRET_TOKEN) else None
 
 
-def _extract_init_data_from_request(request: Any) -> str:
-    """Read Telegram WebApp initData from supported Mini App request locations."""
-    headers = getattr(request, "headers", {}) or {}
-    direct = str(headers.get("X-Telegram-Init-Data") or headers.get("x-telegram-init-data") or "").strip()
-    if direct:
-        return direct
+MINI_APP_INIT_DATA_KEYS = ("initData", "init_data", "tgWebAppData", "telegram_init_data", "webAppData")
+MINI_APP_INIT_DATA_HEADERS = (
+    "X-Telegram-Init-Data",
+    "X-Telegram-Web-App-Data",
+    "X-TMA-Init-Data",
+    "Telegram-Init-Data",
+)
 
-    auth = str(headers.get("Authorization") or headers.get("authorization") or "").strip()
+
+def _extract_init_data_from_mapping(mapping: Any) -> str:
+    """Read initData from a dict/query/form-like object without trusting initDataUnsafe."""
+    if not mapping:
+        return ""
+    getter = getattr(mapping, "get", None)
+    if not callable(getter):
+        return ""
+    for key in MINI_APP_INIT_DATA_KEYS:
+        try:
+            value = str(getter(key) or "").strip()
+        except Exception:
+            value = ""
+        if value:
+            return value
+    return ""
+
+
+def _extract_init_data_from_headers_and_query(request: Any) -> str:
+    """Read Telegram WebApp initData from headers, Authorization, or query string."""
+    headers = getattr(request, "headers", {}) or {}
+    for header_name in MINI_APP_INIT_DATA_HEADERS:
+        value = str(headers.get(header_name) or "").strip()
+        if value:
+            return value
+
+    auth = str(headers.get("Authorization") or "").strip()
     for prefix in ("tma ", "telegram ", "bearer "):
         if auth.casefold().startswith(prefix):
             return auth[len(prefix):].strip()
 
-    query_params = getattr(request, "query_params", {}) or {}
-    for key in ("initData", "init_data", "tgWebAppData"):
-        value = str(query_params.get(key) or "").strip()
+    return _extract_init_data_from_mapping(getattr(request, "query_params", {}) or {})
+
+
+async def _api_request_body_bytes(request: Any) -> bytes:
+    """Read request body once and reuse it across auth + payload parsing."""
+    state = getattr(request, "state", None)
+    if state is not None:
+        cached = getattr(state, "_mini_app_cached_body", None)
+        if isinstance(cached, (bytes, bytearray)):
+            return bytes(cached)
+    try:
+        body = await request.body()
+    except Exception:
+        _api_raise(400, "could not read request body")
+    if len(body) > MINI_APP_REQUEST_BODY_LIMIT_BYTES:
+        _api_raise(413, "request body too large")
+    if state is not None:
+        try:
+            setattr(state, "_mini_app_cached_body", bytes(body))
+        except Exception:
+            pass
+    return bytes(body)
+
+
+async def _extract_init_data_from_request(request: Any) -> str:
+    """Read Telegram WebApp initData from all frontend-friendly request locations.
+
+    Preferred frontend usage is the `X-Telegram-Init-Data` header or
+    `Authorization: tma <initData>`.  For easier React/Vite integration, JSON
+    bodies like `{"initData": window.Telegram.WebApp.initData}` and raw
+    x-www-form-urlencoded bodies are also accepted.
+    """
+    direct = _extract_init_data_from_headers_and_query(request)
+    if direct:
+        return direct
+
+    method = str(getattr(request, "method", "") or "").upper()
+    if method in {"GET", "HEAD", "OPTIONS"}:
+        return ""
+
+    body = await _api_request_body_bytes(request)
+    if not body:
+        return ""
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return ""
+    stripped = text.strip()
+    if not stripped:
+        return ""
+
+    headers = getattr(request, "headers", {}) or {}
+    content_type = str(headers.get("content-type") or headers.get("Content-Type") or "").casefold()
+    if "application/json" in content_type or stripped.startswith("{"):
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            value = _extract_init_data_from_mapping(payload)
+            if value:
+                return value
+
+    if "application/x-www-form-urlencoded" in content_type or ("auth_date=" in stripped and "hash=" in stripped):
+        parsed = dict(parse_qsl(stripped, keep_blank_values=True, strict_parsing=False))
+        value = _extract_init_data_from_mapping(parsed)
         if value:
             return value
+        if "auth_date=" in stripped and "hash=" in stripped:
+            return stripped
+
     return ""
 
 
@@ -8184,8 +8277,8 @@ def validate_telegram_webapp_init_data(init_data: str) -> MiniAppPrincipal:
     )
 
 
-def _api_principal_from_request(request: Any) -> MiniAppPrincipal:
-    return validate_telegram_webapp_init_data(_extract_init_data_from_request(request))
+async def _api_principal_from_request(request: Any) -> MiniAppPrincipal:
+    return validate_telegram_webapp_init_data(await _extract_init_data_from_request(request))
 
 
 def _api_full_name(user: dict[str, Any]) -> str:
@@ -8278,14 +8371,9 @@ def _api_int(value: Any, default: int, *, min_value: int = 0, max_value: int = 1
 
 
 async def _api_request_json(request: Any) -> dict[str, Any]:
-    try:
-        body = await request.body()
-    except Exception:
-        _api_raise(400, "could not read request body")
+    body = await _api_request_body_bytes(request)
     if not body:
         return {}
-    if len(body) > MINI_APP_REQUEST_BODY_LIMIT_BYTES:
-        _api_raise(413, "request body too large")
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -8549,6 +8637,84 @@ def _api_memory_overview_locked(bot_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _api_route_catalog() -> dict[str, Any]:
+    """Small public route catalog so a frontend can auto-wire API calls."""
+    prefix = MINI_APP_API_PREFIX
+    auth = "Send Telegram WebApp initData via X-Telegram-Init-Data or Authorization: tma <initData>."
+    return {
+        "auth": auth,
+        "prefix": prefix,
+        "public": {
+            "root": "/",
+            "health": f"{prefix}/health",
+            "routes": f"{prefix}/routes",
+        },
+        "session": {
+            "auth_session": f"{prefix}/auth/session",
+            "session_alias": f"{prefix}/session",
+            "bootstrap": f"{prefix}/bootstrap",
+            "dashboard": f"{prefix}/dashboard",
+            "me": f"{prefix}/me",
+            "my_groups": f"{prefix}/me/groups",
+            "groups_alias": f"{prefix}/groups",
+        },
+        "groups": {
+            "detail": f"{prefix}/groups/{{chat_id}}",
+            "settings": f"{prefix}/groups/{{chat_id}}/settings",
+            "formats": f"{prefix}/groups/{{chat_id}}/formats/{{allowed|blocked}}",
+            "trusted_hashes": f"{prefix}/groups/{{chat_id}}/trusted-hashes",
+            "incidents": f"{prefix}/groups/{{chat_id}}/incidents",
+            "risk": f"{prefix}/groups/{{chat_id}}/risk",
+            "admins": f"{prefix}/groups/{{chat_id}}/admins",
+            "admin_logs": f"{prefix}/groups/{{chat_id}}/admin-logs",
+            "health": f"{prefix}/groups/{{chat_id}}/health",
+        },
+        "tools": {
+            "scan_name": f"{prefix}/scan/name",
+            "feedback": f"{prefix}/feedback",
+            "incident_action": f"{prefix}/incidents/{{token_or_key}}/action",
+        },
+        "developer": {
+            "overview": f"{prefix}/developer/overview",
+            "users": f"{prefix}/developer/users",
+            "groups": f"{prefix}/developer/groups",
+            "feedback": f"{prefix}/developer/feedback",
+            "runtime_config": f"{prefix}/developer/runtime-config",
+        },
+    }
+
+
+def _api_session_payload_locked(bot_data: dict[str, Any], principal: MiniAppPrincipal, *, include_groups: bool = False) -> dict[str, Any]:
+    saved = bot_data.get("known_users", {}).get(str(principal.user_id), {}) if isinstance(bot_data.get("known_users", {}), dict) else {}
+    state = _read_user_state(bot_data, principal.user_id)
+    group_ids = _api_linked_group_ids_locked(bot_data, principal.user_id)
+    payload: dict[str, Any] = {
+        "ok": True,
+        "user": _api_public_profile_from_principal(principal),
+        "saved_profile": _api_json_safe(saved),
+        "state": _api_json_safe(state),
+        "is_developer": principal.user_id in BOT_OWNER_IDS,
+        "linked_group_count": len(group_ids),
+        "features": {
+            "groups": True,
+            "group_settings": True,
+            "incidents": True,
+            "trusted_hashes": trusted_hash_whitelist_enabled(bot_data),
+            "developer_dashboard": principal.user_id in BOT_OWNER_IDS,
+        },
+        "routes": _api_route_catalog(),
+    }
+    if include_groups:
+        payload["groups"] = [_api_group_snapshot_locked(bot_data, principal.user_id, chat_id) for chat_id in group_ids]
+        payload["total_groups"] = len(payload["groups"])
+    if principal.user_id in BOT_OWNER_IDS:
+        payload["developer"] = {
+            "overview": _api_memory_overview_locked(bot_data),
+            "runtime_config": _api_json_safe(dict(ensure_runtime_config(bot_data))),
+        }
+    return payload
+
+
 async def _api_perform_incident_action(
     application: Application,
     principal: MiniAppPrincipal,
@@ -8660,12 +8826,17 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         raise RuntimeError("MINI_APP_API_ENABLED=true requires dependencies: fastapi and uvicorn")
 
     api = FastAPI(title=f"{PROFESSIONAL_BRAND_NAME} Mini App API", version=PROFESSIONAL_UI_VERSION)
+    cors_origins = [origin for origin in MINI_APP_CORS_ORIGINS if origin]
+    cors_all = "*" in cors_origins or not cors_origins
     api.add_middleware(
         CORSMiddleware,
-        allow_origins=list(MINI_APP_CORS_ORIGINS),
+        allow_origins=["*"] if cors_all else cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Telegram-Init-Data", "X-Telegram-Bot-Api-Secret-Token"],
+        # Let Vite/Telegram/frontends send auth/initData headers without CORS preflight surprises.
+        allow_headers=["*"],
+        expose_headers=["Content-Type"],
+        max_age=86400,
     )
 
     webhook_route = "/" + WEBHOOK_URL_PATH.strip("/")
@@ -8700,7 +8871,18 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             "version": PROFESSIONAL_UI_VERSION,
             "api_prefix": MINI_APP_API_PREFIX,
             "docs": "/docs",
+            "routes": f"{MINI_APP_API_PREFIX}/routes",
+            "bootstrap": f"{MINI_APP_API_PREFIX}/bootstrap",
         }
+
+    @api.get(MINI_APP_API_PREFIX)
+    @api.get(f"{MINI_APP_API_PREFIX}/")
+    async def api_index() -> dict[str, Any]:
+        return {"ok": True, "name": PROFESSIONAL_BRAND_NAME, "version": PROFESSIONAL_UI_VERSION, "routes": _api_route_catalog()}
+
+    @api.get(f"{MINI_APP_API_PREFIX}/routes")
+    async def api_routes() -> dict[str, Any]:
+        return {"ok": True, "routes": _api_route_catalog()}
 
     @api.get(f"{MINI_APP_API_PREFIX}/health")
     async def api_health() -> dict[str, Any]:
@@ -8732,30 +8914,34 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/auth/session")
     @api.post(f"{MINI_APP_API_PREFIX}/auth/session")
+    @api.get(f"{MINI_APP_API_PREFIX}/session")
+    @api.post(f"{MINI_APP_API_PREFIX}/session")
     async def api_auth_session(request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_remember_principal(application, principal, persist=True)
         async with BOT_DATA_LOCK:
-            profile = dict(application.bot_data.get("known_users", {}).get(str(principal.user_id), {})) if isinstance(application.bot_data.get("known_users", {}), dict) else {}
-            groups = _api_linked_group_ids_locked(application.bot_data, principal.user_id)
-        return {
-            "ok": True,
-            "user": _api_public_profile_from_principal(principal),
-            "saved_profile": _api_json_safe(profile),
-            "is_developer": principal.user_id in BOT_OWNER_IDS,
-            "linked_group_count": len(groups),
-            "features": {
-                "groups": True,
-                "group_settings": True,
-                "incidents": True,
-                "trusted_hashes": trusted_hash_whitelist_enabled(application.bot_data),
-                "developer_dashboard": principal.user_id in BOT_OWNER_IDS,
-            },
-        }
+            return _api_session_payload_locked(application.bot_data, principal, include_groups=False)
+
+    @api.get(f"{MINI_APP_API_PREFIX}/bootstrap")
+    @api.post(f"{MINI_APP_API_PREFIX}/bootstrap")
+    @api.get(f"{MINI_APP_API_PREFIX}/dashboard")
+    @api.post(f"{MINI_APP_API_PREFIX}/dashboard")
+    async def api_bootstrap(request: Request, refresh: bool = False) -> dict[str, Any]:
+        principal = await _api_principal_from_request(request)
+        await _api_remember_principal(application, principal, persist=True)
+        async with BOT_DATA_LOCK:
+            group_ids = _api_linked_group_ids_locked(application.bot_data, principal.user_id)
+        if refresh and MINI_APP_LIVE_REFRESH_ALLOWED:
+            await asyncio.gather(
+                *(get_bot_member_cached(application, chat_id, force=True, allow_api=True) for chat_id in group_ids[:25]),
+                return_exceptions=True,
+            )
+        async with BOT_DATA_LOCK:
+            return _api_session_payload_locked(application.bot_data, principal, include_groups=True)
 
     @api.get(f"{MINI_APP_API_PREFIX}/me")
     async def api_me(request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         async with BOT_DATA_LOCK:
             saved = application.bot_data.get("known_users", {}).get(str(principal.user_id), {}) if isinstance(application.bot_data.get("known_users", {}), dict) else {}
             state = _read_user_state(application.bot_data, principal.user_id)
@@ -8770,8 +8956,9 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         }
 
     @api.get(f"{MINI_APP_API_PREFIX}/me/groups")
+    @api.get(f"{MINI_APP_API_PREFIX}/groups")
     async def api_my_groups(request: Request, refresh: bool = False) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_remember_principal(application, principal, persist=False)
         async with BOT_DATA_LOCK:
             group_ids = _api_linked_group_ids_locked(application.bot_data, principal.user_id)
@@ -8786,7 +8973,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}")
     async def api_group_detail(chat_id: int, request: Request, refresh: bool = False) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=refresh and MINI_APP_LIVE_REFRESH_ALLOWED)
         if refresh and MINI_APP_LIVE_REFRESH_ALLOWED:
             await asyncio.gather(
@@ -8798,7 +8985,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.patch(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/settings")
     async def api_update_group_settings(chat_id: int, request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=True)
         payload = await _api_request_json(request)
         changed: list[str] = []
@@ -8845,7 +9032,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/formats/{{kind}}")
     async def api_get_formats(chat_id: int, kind: str, request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=False)
         kind = kind.strip().casefold()
         if kind not in {"allowed", "blocked"}:
@@ -8857,7 +9044,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.post(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/formats/{{kind}}")
     async def api_update_formats(chat_id: int, kind: str, request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=True)
         kind = kind.strip().casefold()
         if kind not in {"allowed", "blocked"}:
@@ -8881,7 +9068,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.delete(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/formats/{{kind}}/{{ext}}")
     async def api_delete_format(chat_id: int, kind: str, ext: str, request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=True)
         kind = kind.strip().casefold()
         if kind not in {"allowed", "blocked"}:
@@ -8897,7 +9084,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/trusted-hashes")
     async def api_get_hashes(chat_id: int, request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=False)
         async with BOT_DATA_LOCK:
             settings = get_group_settings(application.bot_data, chat_id)
@@ -8907,7 +9094,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.post(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/trusted-hashes")
     async def api_add_hash(chat_id: int, request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=True)
         payload = await _api_request_json(request)
         digest = normalize_sha256_hash(payload.get("sha256") or payload.get("hash") or payload.get("file_sha256"))
@@ -8924,7 +9111,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.delete(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/trusted-hashes/{{digest}}")
     async def api_delete_hash(chat_id: int, digest: str, request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=True)
         async with BOT_DATA_LOCK:
             ok = remove_trusted_file_hash(application.bot_data, chat_id, digest)
@@ -8937,7 +9124,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.delete(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/trusted-hashes")
     async def api_clear_hashes(chat_id: int, request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=True)
         async with BOT_DATA_LOCK:
             clear_trusted_file_hashes(application.bot_data, chat_id)
@@ -8947,7 +9134,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/incidents")
     async def api_group_incidents(chat_id: int, request: Request, status: str = "all", limit: int = 50) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=False)
         status = status.strip().casefold()
         if status not in {"all", "open", "handled"}:
@@ -8958,14 +9145,14 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.post(f"{MINI_APP_API_PREFIX}/incidents/{{token_or_key}}/action")
     async def api_incident_action(token_or_key: str, request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         payload = await _api_request_json(request)
         action = str(payload.get("action") or "").strip().casefold()
         return await _api_perform_incident_action(application, principal, token_or_key, action)
 
     @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/risk")
     async def api_group_risk(chat_id: int, request: Request, limit: int = 20) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=False)
         async with BOT_DATA_LOCK:
             rows = _api_risk_list_locked(application.bot_data, chat_id, limit=limit)
@@ -8973,7 +9160,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/admins")
     async def api_group_admins(chat_id: int, request: Request, refresh: bool = False) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=refresh and MINI_APP_LIVE_REFRESH_ALLOWED)
         if refresh and MINI_APP_LIVE_REFRESH_ALLOWED:
             ids = await get_chat_admin_ids_cached(application, chat_id, force=True, allow_api=True)
@@ -8995,7 +9182,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/admin-logs")
     async def api_group_admin_logs(chat_id: int, request: Request, limit: int = 100) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=False)
         async with BOT_DATA_LOCK:
             rows = _api_admin_logs_for_chat_locked(application.bot_data, chat_id, limit=limit)
@@ -9003,7 +9190,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/health")
     async def api_group_health(chat_id: int, request: Request, refresh: bool = False) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=refresh and MINI_APP_LIVE_REFRESH_ALLOWED)
         if refresh and MINI_APP_LIVE_REFRESH_ALLOWED:
             await asyncio.gather(
@@ -9016,7 +9203,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.post(f"{MINI_APP_API_PREFIX}/scan/name")
     async def api_scan_name(request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         payload = await _api_request_json(request)
         file_name = str(payload.get("file_name") or payload.get("filename") or "").strip()
         if not file_name:
@@ -9026,7 +9213,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.post(f"{MINI_APP_API_PREFIX}/feedback")
     async def api_feedback(request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         payload = await _api_request_json(request)
         text = str(payload.get("text") or payload.get("message") or "").strip()
         if len(text) < 5:
@@ -9050,14 +9237,14 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/developer/overview")
     async def api_developer_overview(request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_owner(principal)
         async with BOT_DATA_LOCK:
             return {"ok": True, "overview": _api_memory_overview_locked(application.bot_data)}
 
     @api.get(f"{MINI_APP_API_PREFIX}/developer/users")
     async def api_developer_users(request: Request, limit: int = 100) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_owner(principal)
         async with BOT_DATA_LOCK:
             known = application.bot_data.get("known_users", {}) if isinstance(application.bot_data.get("known_users", {}), dict) else {}
@@ -9067,7 +9254,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/developer/groups")
     async def api_developer_groups(request: Request, limit: int = 200) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_owner(principal)
         async with BOT_DATA_LOCK:
             ids = _api_linked_group_ids_locked(application.bot_data, principal.user_id)
@@ -9076,7 +9263,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/developer/feedback")
     async def api_developer_feedback(request: Request, limit: int = 100) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_owner(principal)
         async with BOT_DATA_LOCK:
             feedback = application.bot_data.get("user_feedback", []) if isinstance(application.bot_data.get("user_feedback", []), list) else []
@@ -9085,7 +9272,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.get(f"{MINI_APP_API_PREFIX}/developer/runtime-config")
     async def api_get_runtime_config(request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_owner(principal)
         async with BOT_DATA_LOCK:
             config = dict(ensure_runtime_config(application.bot_data))
@@ -9093,7 +9280,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
 
     @api.patch(f"{MINI_APP_API_PREFIX}/developer/runtime-config")
     async def api_update_runtime_config(request: Request) -> dict[str, Any]:
-        principal = _api_principal_from_request(request)
+        principal = await _api_principal_from_request(request)
         await _api_require_owner(principal)
         payload = await _api_request_json(request)
         async with BOT_DATA_LOCK:
