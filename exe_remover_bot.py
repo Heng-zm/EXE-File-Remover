@@ -33,13 +33,14 @@ import httpx
 from dotenv import load_dotenv
 
 try:
-    from fastapi import FastAPI, HTTPException, Request
+    from fastapi import FastAPI, HTTPException, Request, Response
     from fastapi.middleware.cors import CORSMiddleware
     import uvicorn
 except ImportError:  # Mini App API is optional; webhook/polling bot still works without it.
     FastAPI = None  # type: ignore[assignment]
     HTTPException = None  # type: ignore[assignment]
     Request = Any  # type: ignore[assignment,misc]
+    Response = Any  # type: ignore[assignment,misc]
     CORSMiddleware = None  # type: ignore[assignment]
     uvicorn = None  # type: ignore[assignment]
 
@@ -304,6 +305,12 @@ SERVER_LOG_API_KEY = _env_str("SERVER_LOG_API_KEY") or _env_str("SERVER_LOG_TOKE
 SERVER_LOG_ALLOW_TELEGRAM_OWNER_AUTH = _env_bool("SERVER_LOG_ALLOW_TELEGRAM_OWNER_AUTH", True)
 SERVER_LOG_AUTH_QUERY_ENABLED = _env_bool("SERVER_LOG_AUTH_QUERY_ENABLED", True)
 SERVER_LOG_PUBLIC_ACCESS = _env_bool("SERVER_LOG_PUBLIC_ACCESS", False)
+# Successful reads of /api/server/log can spam the in-memory log when the
+# frontend polls every few seconds. Keep error/DELETE/slow log events, but skip
+# normal successful reads by default for cleaner logs and lower overhead.
+SERVER_LOG_CAPTURE_LOG_ENDPOINT = _env_bool("SERVER_LOG_CAPTURE_LOG_ENDPOINT", False)
+# Health-check HEAD requests should be accepted and not counted as API errors.
+SERVER_LOG_CAPTURE_HEALTHCHECKS = _env_bool("SERVER_LOG_CAPTURE_HEALTHCHECKS", False)
 
 # ─────────────────────────────────────────────────────────────
 # DEFAULT BOT MIDDLEWARE CONFIG
@@ -583,24 +590,38 @@ def server_log_event(category: str, level: str, message: str, **fields: Any) -> 
 
 
 def server_log_snapshot(*, limit: int = 200, level: str = "all", category: str = "all", since_id: int = 0) -> list[dict[str, Any]]:
+    """Return a filtered snapshot without copying the whole ring buffer.
+
+    The old implementation copied every buffered log row before filtering. That
+    is fine for tiny logs, but it becomes wasteful when SERVER_LOG_MAX_ITEMS is
+    raised and the frontend polls this endpoint. This version stops as soon as
+    the requested page is filled.
+    """
     level_filter = str(level or "all").strip().casefold()
     category_filter = str(category or "all").strip().casefold()
-    max_rows = max(1, min(int(limit or 200), min(SERVER_LOG_MAX_ITEMS, 1000)))
-    with SERVER_LOG_LOCK:
-        rows = [dict(item) for item in SERVER_LOGS]
-    filtered: list[dict[str, Any]] = []
-    for row in rows:
-        if since_id and int(row.get("id") or 0) <= since_id:
-            continue
-        if level_filter not in {"", "all", "*"} and str(row.get("level") or "").casefold() != level_filter:
-            continue
-        if category_filter not in {"", "all", "*"} and str(row.get("category") or "").casefold() != category_filter:
-            continue
-        filtered.append(row)
-        if len(filtered) >= max_rows:
-            break
-    return filtered
+    try:
+        since_id_int = max(0, int(since_id or 0))
+    except (TypeError, ValueError):
+        since_id_int = 0
+    try:
+        requested_limit = int(limit or 200)
+    except (TypeError, ValueError):
+        requested_limit = 200
+    max_rows = max(1, min(requested_limit, min(SERVER_LOG_MAX_ITEMS, 1000)))
 
+    filtered: list[dict[str, Any]] = []
+    with SERVER_LOG_LOCK:
+        for row in SERVER_LOGS:
+            if since_id_int and int(row.get("id") or 0) <= since_id_int:
+                continue
+            if level_filter not in {"", "all", "*"} and str(row.get("level") or "").casefold() != level_filter:
+                continue
+            if category_filter not in {"", "all", "*"} and str(row.get("category") or "").casefold() != category_filter:
+                continue
+            filtered.append(dict(row))
+            if len(filtered) >= max_rows:
+                break
+    return filtered
 
 def clear_server_logs() -> None:
     with SERVER_LOG_LOCK:
@@ -9173,7 +9194,16 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         client = getattr(request, "client", None)
         client_host = str(getattr(client, "host", "") or "")
         user_agent = _server_log_safe_text(str(request.headers.get("user-agent") or ""), max_chars=180)
-        log_this_request = path == "/" or path == webhook_route or path.startswith(MINI_APP_API_PREFIX.rstrip("/") + "/") or path == MINI_APP_API_PREFIX
+        api_prefix_clean = MINI_APP_API_PREFIX.rstrip("/")
+        server_log_paths = {f"{api_prefix_clean}/server/log", f"{api_prefix_clean}/server/logs"}
+        healthcheck_paths = {"/", MINI_APP_API_PREFIX, f"{api_prefix_clean}/", f"{api_prefix_clean}/health"}
+        is_server_log_read = path in server_log_paths and method in {"GET", "HEAD"}
+        is_healthcheck = method == "HEAD" and path in healthcheck_paths
+        log_this_request = path == "/" or path == webhook_route or path.startswith(api_prefix_clean + "/") or path == MINI_APP_API_PREFIX
+        if is_server_log_read and not SERVER_LOG_CAPTURE_LOG_ENDPOINT:
+            log_this_request = False
+        if is_healthcheck and not SERVER_LOG_CAPTURE_HEALTHCHECKS:
+            log_this_request = False
 
         try:
             response = await call_next(request)
@@ -9244,6 +9274,18 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         await application.stop()
         await post_shutdown(application)
         await application.shutdown()
+
+    @api.head("/")
+    async def api_root_head() -> Response:
+        # UptimeRobot and Render health checks often use HEAD. Returning 200
+        # prevents harmless monitor probes from becoming noisy 405 errors.
+        return Response(status_code=200, headers={"X-Service-Status": "ok", "X-API-Prefix": MINI_APP_API_PREFIX})
+
+    @api.head(MINI_APP_API_PREFIX)
+    @api.head(f"{MINI_APP_API_PREFIX}/")
+    @api.head(f"{MINI_APP_API_PREFIX}/health")
+    async def api_health_head() -> Response:
+        return Response(status_code=200, headers={"X-Service-Status": "ok", "X-API-Prefix": MINI_APP_API_PREFIX})
 
     @api.get("/")
     async def api_root() -> dict[str, Any]:
@@ -9631,6 +9673,13 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             "filters": {"limit": limit, "level": level, "category": category, "since_id": since_id},
             "counters": server_log_counters(),
             "process": process_status_snapshot(),
+            "config": {
+                "public_access": SERVER_LOG_PUBLIC_ACCESS,
+                "capture_log_endpoint": SERVER_LOG_CAPTURE_LOG_ENDPOINT,
+                "capture_healthchecks": SERVER_LOG_CAPTURE_HEALTHCHECKS,
+                "api_key_configured": bool(SERVER_LOG_API_KEY),
+                "telegram_owner_auth": SERVER_LOG_ALLOW_TELEGRAM_OWNER_AUTH,
+            },
             "routes": {
                 "self": f"{MINI_APP_API_PREFIX}/server/log",
                 "clear": f"{MINI_APP_API_PREFIX}/server/log",
