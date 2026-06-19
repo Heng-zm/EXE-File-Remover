@@ -283,6 +283,13 @@ MINI_APP_REQUEST_BODY_LIMIT_BYTES = _env_int(
 MINI_APP_LIVE_REFRESH_ALLOWED = _env_bool("MINI_APP_LIVE_REFRESH_ALLOWED", True)
 MINI_APP_UVICORN_ACCESS_LOG = _env_bool("MINI_APP_UVICORN_ACCESS_LOG", False)
 MINI_APP_WEBHOOK_SECRET_HEADER_ENABLED = _env_bool("MINI_APP_WEBHOOK_SECRET_HEADER_ENABLED", True)
+# Prevent blank screens when a frontend is opened outside Telegram or before
+# Telegram injects WebApp.initData. Authenticated routes still protect private
+# data, but /api/bootstrap and /api/session can return a safe public shell
+# payload so React can render an "Open in Telegram" / retry state instead
+# of crashing on a 401 response.
+MINI_APP_PUBLIC_BOOTSTRAP_ON_MISSING_INITDATA = _env_bool("MINI_APP_PUBLIC_BOOTSTRAP_ON_MISSING_INITDATA", True)
+MINI_APP_FRONTEND_DEBUG_ENABLED = _env_bool("MINI_APP_FRONTEND_DEBUG_ENABLED", True)
 
 # In-memory API/server diagnostics for the Telegram Mini App frontend.
 # These logs are process-local, bounded, and intentionally do not persist to
@@ -9024,6 +9031,67 @@ def _api_route_catalog() -> dict[str, Any]:
     }
 
 
+def _api_public_bootstrap_payload(*, reason: str = "missing_init_data") -> dict[str, Any]:
+    """Safe unauthenticated payload for frontend boot.
+
+    This intentionally contains no private user/group data. It lets a React
+    Mini App render a friendly connection/auth state instead of a blank screen
+    when window.Telegram.WebApp.initData is empty, the app is opened in a normal
+    browser, or a frontend request is made before Telegram initialization.
+    """
+    return {
+        "ok": True,
+        "authenticated": False,
+        "auth_required": True,
+        "reason": str(reason or "missing_init_data"),
+        "message": "Telegram Mini App initData is required for private user/group data. Open this page inside Telegram or send X-Telegram-Init-Data.",
+        "user": None,
+        "saved_profile": {},
+        "state": {},
+        "linked_group_count": 0,
+        "groups": [],
+        "total_groups": 0,
+        "is_developer": False,
+        "features": {
+            "groups": False,
+            "group_settings": False,
+            "incidents": False,
+            "trusted_hashes": False,
+            "developer_dashboard": False,
+        },
+        "api": {
+            "name": PROFESSIONAL_BRAND_NAME,
+            "version": PROFESSIONAL_UI_VERSION,
+            "prefix": MINI_APP_API_PREFIX,
+            "bot_id": BOT_ID,
+            "bot_username": BOT_USERNAME,
+        },
+        "routes": _api_route_catalog(),
+    }
+
+
+def _api_frontend_config_payload() -> dict[str, Any]:
+    """Public frontend configuration and connectivity probe payload."""
+    return {
+        "ok": True,
+        "name": PROFESSIONAL_BRAND_NAME,
+        "version": PROFESSIONAL_UI_VERSION,
+        "api_prefix": MINI_APP_API_PREFIX,
+        "bot_id": BOT_ID,
+        "bot_username": BOT_USERNAME,
+        "telegram_auth_required": True,
+        "auth_header": "X-Telegram-Init-Data",
+        "public_bootstrap_on_missing_initdata": MINI_APP_PUBLIC_BOOTSTRAP_ON_MISSING_INITDATA,
+        "frontend_debug_enabled": MINI_APP_FRONTEND_DEBUG_ENABLED,
+        "cors": {
+            "allow_origins": list(MINI_APP_CORS_ORIGINS),
+            "allow_headers": ["*"],
+            "allow_methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        },
+        "routes": _api_route_catalog(),
+    }
+
+
 def _api_session_payload_locked(bot_data: dict[str, Any], principal: MiniAppPrincipal, *, include_groups: bool = False) -> dict[str, Any]:
     saved = bot_data.get("known_users", {}).get(str(principal.user_id), {}) if isinstance(bot_data.get("known_users", {}), dict) else {}
     state = _read_user_state(bot_data, principal.user_id)
@@ -9322,6 +9390,19 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             "memory": memory,
         }
 
+    @api.get(f"{MINI_APP_API_PREFIX}/frontend/config")
+    @api.get(f"{MINI_APP_API_PREFIX}/connect")
+    @api.get(f"{MINI_APP_API_PREFIX}/connect-test")
+    async def api_frontend_config() -> dict[str, Any]:
+        # Public: contains only routing/config data. No private user/group data.
+        return _api_frontend_config_payload()
+
+    @api.options("/{full_path:path}")
+    async def api_options_preflight(full_path: str) -> Response:
+        # CORSMiddleware handles real browser preflights. This fallback keeps
+        # manual OPTIONS checks from showing as failed connections.
+        return Response(status_code=204)
+
     @api.api_route(webhook_route, methods=["POST"])
     async def telegram_webhook(request: Request) -> dict[str, bool]:
         if secret_header:
@@ -9342,7 +9423,12 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
     @api.get(f"{MINI_APP_API_PREFIX}/session")
     @api.post(f"{MINI_APP_API_PREFIX}/session")
     async def api_auth_session(request: Request) -> dict[str, Any]:
-        principal = await _api_principal_from_request(request)
+        try:
+            principal = await _api_principal_from_request(request)
+        except HTTPException as exc:
+            if MINI_APP_PUBLIC_BOOTSTRAP_ON_MISSING_INITDATA and int(getattr(exc, "status_code", 0) or 0) == 401:
+                return _api_public_bootstrap_payload(reason=str(getattr(exc, "detail", "missing_init_data") or "missing_init_data"))
+            raise
         await _api_remember_principal(application, principal, persist=True)
         async with BOT_DATA_LOCK:
             return _api_session_payload_locked(application.bot_data, principal, include_groups=False)
@@ -9352,7 +9438,12 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
     @api.get(f"{MINI_APP_API_PREFIX}/dashboard")
     @api.post(f"{MINI_APP_API_PREFIX}/dashboard")
     async def api_bootstrap(request: Request, refresh: bool = False) -> dict[str, Any]:
-        principal = await _api_principal_from_request(request)
+        try:
+            principal = await _api_principal_from_request(request)
+        except HTTPException as exc:
+            if MINI_APP_PUBLIC_BOOTSTRAP_ON_MISSING_INITDATA and int(getattr(exc, "status_code", 0) or 0) == 401:
+                return _api_public_bootstrap_payload(reason=str(getattr(exc, "detail", "missing_init_data") or "missing_init_data"))
+            raise
         await _api_remember_principal(application, principal, persist=True)
         async with BOT_DATA_LOCK:
             group_ids = _api_linked_group_ids_locked(application.bot_data, principal.user_id)
