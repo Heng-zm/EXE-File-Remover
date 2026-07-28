@@ -16,10 +16,11 @@ def test_dashboard_assets_are_packaged_without_a_build_step():
 def test_dashboard_contains_full_administration_sections_and_khmer_copy():
     app_source = (STATIC / "app.js").read_text(encoding="utf-8")
     translations = (STATIC / "i18n.js").read_text(encoding="utf-8")
-    for feature in ("renderPolicies", "renderIncidents", "renderFormats", "renderTrusted", "renderAdministration"):
+    for feature in ("renderPolicies", "renderIncidents", "renderFormats", "renderTrusted", "renderWorkflow", "renderAdministration"):
         assert feature in app_source
     assert "គោលការណ៍ជាក់លាក់សម្រាប់ក្រុម" in translations
     assert "ករណីល្មើស" in translations
+    assert "មជ្ឈមណ្ឌលលំហូរការងារ" in translations
 
 
 def test_dashboard_uses_runtime_api_prefix_configuration():

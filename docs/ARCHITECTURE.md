@@ -1,13 +1,14 @@
-# v3.5 Architecture
+# v3.5.1 Architecture
 
 The application uses a thin deployment entrypoint and focused Python modules.
 
-- `bot.py`: Telegram moderation, handler registration, group state, incident actions, and persistence orchestration.
-- `miniapp_api.py`: Telegram Web App authentication, REST routes, static dashboard mounting, middleware, webhook lifecycle, and developer APIs.
+- `bot.py`: Telegram handlers, moderation runtime, message delivery, persistence orchestration, and lifecycle.
+- `miniapp_api.py`: Telegram Web App authentication, REST routes, static dashboard, middleware, webhook lifecycle, and developer APIs.
+- `workflow.py`: shared workflow stages, bounded history, escalation selection, notification routing, interrupted-run recovery, and group-state reconciliation.
 - `policies.py`: scanner presets, allowed policy values, normalization, and preset detection/application.
-- `incidents.py`: side-effect-free severity calculation, filtering, sorting, pagination, counts, and retention pruning.
+- `incidents.py`: severity calculation, filtering, sorting, pagination, counts, and retention helpers.
 - `scanner.py`: pure filename, MIME, magic-header, and ZIP-member inspection.
-- `schema.py`: durable state contract, schema-v6 migrations, revisions, and snapshot sanitation.
+- `schema.py`: durable state contract, schema-v7 migrations, revisions, and snapshot sanitation.
 - `retry.py`: bounded asynchronous exponential backoff with jitter.
 - `startup.py`: side-effect-free startup preflight validation.
 - `config.py`: environment parsing and typed constants.
@@ -15,25 +16,52 @@ The application uses a thin deployment entrypoint and focused Python modules.
 - `translations.py`: Telegram English and Khmer UI catalogs.
 - `static/`: self-contained dashboard HTML, CSS, JavaScript API client, and bilingual catalog.
 
-## Request flow
+## Coordinated moderation flow
 
 ```text
-Telegram group message
-  -> Telegram handler
-  -> shared scanner
-  -> group-specific policy engine
-  -> delete/notify/escalate
-  -> incident + risk state
-  -> debounced durable persistence
-
-Telegram Mini App
-  -> /app static dashboard
-  -> signed initData header
-  -> FastAPI authentication
-  -> admin authorization
-  -> policy/incident/admin APIs
-  -> durable state update
+Telegram group document
+  -> begin file_moderation workflow
+  -> filename/MIME pre-scan
+  -> group policy evaluation
+  -> optional byte/hash scan
+  -> delete blocked message
+  -> create incident with workflow_id
+  -> shared automatic-action selection
+  -> shared notification routing
+  -> record delivery report
+  -> complete and persist workflow
 ```
+
+Every stage is recorded in one bounded workflow record. Failures retain the last successful stage and a normalized error outcome. A process restart marks stale running workflows as `interrupted` instead of leaving them indefinitely active.
+
+## Administration flow
+
+```text
+Telegram Mini App request
+  -> signed initData authentication
+  -> group-admin authorization
+  -> shared mutation or incident action
+  -> admin audit record
+  -> policy_update / incident_action workflow
+  -> durable persistence
+  -> synchronized group snapshot response
+```
+
+Policy, preset, format, and trusted-hash changes appear in the same workflow stream as moderation activity.
+
+## Group synchronization
+
+`POST /api/groups/{chat_id}/sync` performs one coordinated reconciliation:
+
+1. Verify the requesting administrator.
+2. Refresh Telegram administrator and bot-permission caches.
+3. Normalize group settings and preset detection.
+4. Apply incident retention and remove malformed/expired incidents.
+5. Remove orphan incident-action tokens.
+6. Refresh workflow counters and group sync metadata.
+7. Persist the reconciled snapshot.
+
+The Mini App Workflow Center presents the same report returned by the API.
 
 ## Policy precedence
 
@@ -47,6 +75,6 @@ Telegram Mini App
 
 Core executable detections are deliberately evaluated before configurable allow-list behavior.
 
-## Frontend model
+## Persistence
 
-The dashboard uses browser-native ES modules and is served directly by FastAPI. It has no Node build step, no external state store, and no client-side secrets. Every protected request sends Telegram’s signed `initData`; authorization is enforced again on the server.
+Schema v7 adds `workflow_history` as a bounded list. Workflow history stores JSON-safe metadata only and is included in Redis, Supabase, and supported local snapshots. The maximum retained history is 500 records with up to 24 events per record.

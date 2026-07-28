@@ -125,6 +125,12 @@ PERSISTENCE_RETRY_ATTEMPTS = _env_int("PERSISTENCE_RETRY_ATTEMPTS", 4, min_value
 PERSISTENCE_RETRY_BASE_DELAY_SECONDS = _env_float("PERSISTENCE_RETRY_BASE_DELAY_SECONDS", 0.35, min_value=0.0)
 PERSISTENCE_RETRY_MAX_DELAY_SECONDS = _env_float("PERSISTENCE_RETRY_MAX_DELAY_SECONDS", 5.0, min_value=0.1)
 PERSISTENCE_RETRY_JITTER_RATIO = _env_float("PERSISTENCE_RETRY_JITTER_RATIO", 0.20, min_value=0.0)
+
+# Coordinated workflow retention and recovery. These stores are bounded to keep
+# persistence snapshots and Mini App responses predictable under heavy traffic.
+WORKFLOW_HISTORY_MAX_ITEMS = _env_int("WORKFLOW_HISTORY_MAX_ITEMS", 500, min_value=50, max_value=5000)
+WORKFLOW_EVENT_MAX_ITEMS = _env_int("WORKFLOW_EVENT_MAX_ITEMS", 24, min_value=4, max_value=100)
+WORKFLOW_STALE_SECONDS = _env_int("WORKFLOW_STALE_SECONDS", 900, min_value=60, max_value=86400)
 STARTUP_VALIDATION_STRICT = _env_bool("STARTUP_VALIDATION_STRICT", True)
 
 
@@ -306,7 +312,7 @@ DEFAULT_MIDDLEWARE_CONFIG: dict[str, int | float | bool] = {
 # Environment variables can still override the release label/brand without
 # requiring code edits.
 PROFESSIONAL_UI_ENABLED = _env_bool("PROFESSIONAL_UI_ENABLED", True)
-PROFESSIONAL_UI_VERSION = _env_str("PROFESSIONAL_UI_VERSION", "v3.5") or "v3.5"
+PROFESSIONAL_UI_VERSION = _env_str("PROFESSIONAL_UI_VERSION", "v3.5.1") or "v3.5.1"
 PROFESSIONAL_BRAND_NAME = _env_str("PROFESSIONAL_BRAND_NAME", "EXE Remover Security Bot") or "EXE Remover Security Bot"
 
 # Lightweight bot middleware controls. PTB has no Express-style middleware,

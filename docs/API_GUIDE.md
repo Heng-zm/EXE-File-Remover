@@ -1,4 +1,4 @@
-# EXE Remover Security Bot v3.5 — Mini App API
+# EXE Remover Security Bot v3.5.1 — Mini App API
 
 ## Base paths
 
@@ -192,3 +192,61 @@ Developer-only endpoints remain available under `/api/developer/*` and `/api/ser
 - Use exact production CORS origins where a separate frontend is used. The built-in `/app` dashboard is same-origin.
 - Keep local pickle persistence disabled unless the file is fully trusted.
 - Never expose the Supabase service-role key, Redis signing key, bot token, or Telegram `initData` in frontend source or logs.
+
+---
+
+## v3.5.1 Workflow API
+
+### List group workflows
+
+```http
+GET /api/groups/{chat_id}/workflows?kind=all&status=all&limit=50&include_events=false
+X-Telegram-Init-Data: <signed initData>
+```
+
+Allowed `kind` values:
+
+```text
+all
+file_moderation
+incident_action
+policy_update
+group_sync
+```
+
+Allowed `status` values:
+
+```text
+all
+running
+completed
+failed
+interrupted
+```
+
+Response includes status counts and recent workflow rows with stage, progress, outcome, timestamps, actor/source metadata, and optional event history.
+
+### Synchronize a group
+
+```http
+POST /api/groups/{chat_id}/sync
+X-Telegram-Init-Data: <signed initData>
+Content-Type: application/json
+
+{}
+```
+
+This refreshes Telegram administrator/bot permissions, normalizes policies, applies incident retention, removes orphan tokens, refreshes workflow counters, persists the result, and returns an updated group snapshot.
+
+### Incident traceability
+
+Incident responses now include:
+
+```json
+{
+  "workflow_id": "wf_...",
+  "last_action_workflow_id": "wf_..."
+}
+```
+
+`workflow_id` identifies the original file-moderation run. `last_action_workflow_id` identifies the latest Mini App warn/ban/ignore workflow.

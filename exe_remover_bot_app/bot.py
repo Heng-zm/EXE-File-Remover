@@ -117,6 +117,17 @@ from .schema import (
 from .startup import validate_startup_config
 from .translations import TEXTS
 
+from .workflow import (
+    advance_workflow,
+    begin_workflow,
+    complete_workflow,
+    fail_workflow,
+    moderation_notification_targets,
+    recover_interrupted_workflows,
+    reconcile_group_state,
+    select_auto_action,
+)
+
 
 ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
 CHAT_TYPES_GROUP = {ChatType.GROUP, ChatType.SUPERGROUP, "group", "supergroup"}
@@ -5285,14 +5296,15 @@ async def notify_admins(
     file_name: str,
     ikey: str,
     scan_result: str,
-) -> None:
+) -> dict[str, Any]:
+    """Notify eligible administrators and return one shared delivery report."""
     try:
         admin_ids = await get_chat_admin_ids_cached(context, chat_id, allow_api=True)
     except Exception:
         logger.exception("Admin lookup failed while notifying chat_id=%s", chat_id, exc_info=True)
         admin_ids = []
     if not admin_ids:
-        return
+        return {"requested": 0, "delivered": 0, "failed": 0, "admin_ids": []}
 
     sender_id = sender.id if sender else 0
     sender_name = sender.full_name if sender else "Unknown"
@@ -5316,60 +5328,105 @@ async def notify_admins(
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
     delivered: dict[str, int] = {}
+    failures = 0
     for result in results:
         if isinstance(result, Exception):
+            failures += 1
             logger.error("Admin alert task failed: %r", result, exc_info=(type(result), result, result.__traceback__))
         elif result:
             admin_id, message_id = result
             delivered[str(admin_id)] = int(message_id)
+        else:
+            failures += 1
 
-    if delivered:
-        async with BOT_DATA_LOCK:
-            incident = context.bot_data.setdefault("incidents", {}).get(ikey)
-            if isinstance(incident, dict):
-                incident.setdefault("alert_messages", {}).update(delivered)
-                incident["alerted_admins"] = list(admin_ids)
-                incident["alert_delivered_count"] = len(delivered)
-                await persist_context_memory(context, reason="admin_alert_messages", force=True, caller_holds_lock=True)
+    async with BOT_DATA_LOCK:
+        incident = context.bot_data.setdefault("incidents", {}).get(ikey)
+        if isinstance(incident, dict):
+            incident.setdefault("alert_messages", {}).update(delivered)
+            incident["alerted_admins"] = list(admin_ids)
+            incident["alert_delivered_count"] = len(delivered)
+            incident["alert_failed_count"] = failures
+            await persist_context_memory(context, reason="admin_alert_messages", force=True, caller_holds_lock=True)
+
+    return {
+        "requested": len(admin_ids),
+        "delivered": len(delivered),
+        "failed": failures,
+        "admin_ids": list(admin_ids),
+    }
 
 
 
-async def maybe_apply_auto_action(context: ContextTypes.DEFAULT_TYPE, *, chat_id: int, sender_id: int, sender_name: str, ikey: str) -> None:
-    """Apply group auto-action rules after a file was deleted."""
+async def maybe_apply_auto_action(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    chat_id: int,
+    sender_id: int,
+    sender_name: str,
+    ikey: str,
+) -> dict[str, Any]:
+    """Apply the shared escalation plan and return its normalized result."""
+    action = "none"
+    result = "not-run"
     try:
         async with BOT_DATA_LOCK:
             settings = dict(get_group_settings(context.bot_data, chat_id))
-            mode = _auto_action_label(settings.get("auto_action_mode"))
             incidents = context.bot_data.get("incidents", {}) if isinstance(context.bot_data.get("incidents", {}), dict) else {}
-            user_incident_count = sum(1 for item in incidents.values() if isinstance(item, dict) and str(item.get("chat_id")) == str(int(chat_id)) and str(item.get("sender_id")) == str(int(sender_id)))
-            mute_threshold = int(settings.get("auto_mute_threshold", 2)); ban_threshold = int(settings.get("auto_ban_threshold", 3)); mute_minutes = int(settings.get("auto_mute_minutes", 60))
-        if mode == "off": return
-        action = "warn"
-        if mode == "ban" or (mode == "smart" and user_incident_count >= ban_threshold): action = "ban"
-        elif mode == "smart" and user_incident_count >= mute_threshold: action = "mute"
-        result = "not-run"
-        if action == "warn":
-            mention = user_link(sender_id, sender_name); lang = get_group_lang(context.bot_data, chat_id)
-            send_result = await safe_send_message_result(context, chat_id, TEXTS[lang]["warn_in_group"].format(user=mention), operation="auto_warn")
+            user_incident_count = sum(
+                1
+                for item in incidents.values()
+                if isinstance(item, dict)
+                and str(item.get("chat_id")) == str(int(chat_id))
+                and str(item.get("sender_id")) == str(int(sender_id))
+            )
+            mute_minutes = int(settings.get("auto_mute_minutes", 60))
+            action = select_auto_action(settings, incident_count=user_incident_count)
+
+        if action == "none":
+            result = "disabled"
+        elif action == "warn":
+            mention = user_link(sender_id, sender_name)
+            lang = get_group_lang(context.bot_data, chat_id)
+            send_result = await safe_send_message_result(
+                context,
+                chat_id,
+                TEXTS[lang]["warn_in_group"].format(user=mention),
+                operation="auto_warn",
+            )
             result = "warned" if send_result.ok else f"warn-failed:{send_result.error_type or 'send_failed'}"
         elif action == "mute":
             perms = await get_bot_member_cached(context, chat_id, force=True, allow_api=True)
-            if not has_ban_permission(perms): result = "mute-failed:no-restrict-permission"
+            if not has_ban_permission(perms):
+                result = "mute-failed:no-restrict-permission"
             else:
-                await context.bot.restrict_chat_member(chat_id, sender_id, permissions=ChatPermissions(can_send_messages=False), until_date=datetime.now(timezone.utc) + timedelta(minutes=mute_minutes))
+                await context.bot.restrict_chat_member(
+                    chat_id,
+                    sender_id,
+                    permissions=ChatPermissions(can_send_messages=False),
+                    until_date=datetime.now(timezone.utc) + timedelta(minutes=mute_minutes),
+                )
                 result = f"muted:{mute_minutes}m"
         elif action == "ban":
             perms = await get_bot_member_cached(context, chat_id, force=True, allow_api=True)
-            if not has_ban_permission(perms): result = "ban-failed:no-ban-permission"
+            if not has_ban_permission(perms):
+                result = "ban-failed:no-ban-permission"
             else:
-                await context.bot.ban_chat_member(chat_id, sender_id); result = "banned"
+                await context.bot.ban_chat_member(chat_id, sender_id)
+                result = "banned"
+
         async with BOT_DATA_LOCK:
             incident = context.bot_data.setdefault("incidents", {}).get(ikey)
             if isinstance(incident, dict):
-                incident["auto_action"] = action; incident["auto_action_result"] = result; incident["auto_action_count"] = user_incident_count; incident["auto_action_at_ms"] = now_ms()
+                incident["auto_action"] = action
+                incident["auto_action_result"] = result
+                incident["auto_action_count"] = user_incident_count
+                incident["auto_action_at_ms"] = now_ms()
                 await persist_context_memory(context, reason="auto_action_applied", force=True, caller_holds_lock=True)
-    except Exception:
+        return {"action": action, "result": result, "incident_count": user_incident_count}
+    except Exception as exc:
         logger.exception("Auto action failed chat_id=%s sender_id=%s", chat_id, sender_id, exc_info=True)
+        return {"action": action, "result": f"failed:{exc.__class__.__name__}", "incident_count": 0}
+
 
 
 async def sync_handled_alert_messages(
@@ -6204,6 +6261,7 @@ async def private_document_flow_handler(update: Update, context: ContextTypes.DE
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Run one coordinated moderation workflow for every group document."""
     message = update.effective_message
     chat = update.effective_chat
     sender = message.from_user if message else None
@@ -6214,128 +6272,184 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     document = message.document
     file_name_meta = normalize_filename(getattr(document, "file_name", None))
+    mime_type_meta = str(getattr(document, "mime_type", "") or "")
     file_size = int(getattr(document, "file_size", 0) or 0)
+    workflow_id = ""
 
-    pre_scan = scan_filename_only(file_name_meta, getattr(document, "mime_type", "") or "")
+    async def workflow_advance(stage: str, detail: str = "", data: dict[str, Any] | None = None) -> None:
+        if not workflow_id:
+            return
+        async with BOT_DATA_LOCK:
+            advance_workflow(context.bot_data, workflow_id, stage=stage, at_ms=now_ms(), detail=detail, data=data)
+
+    async def workflow_complete(outcome: str, detail: str = "", data: dict[str, Any] | None = None, *, persist: bool = False) -> None:
+        if not workflow_id:
+            return
+        async with BOT_DATA_LOCK:
+            complete_workflow(context.bot_data, workflow_id, at_ms=now_ms(), outcome=outcome, detail=detail, data=data)
+            if persist:
+                await persist_context_memory(context, reason="workflow_completed", force=True, caller_holds_lock=True)
+
+    async def workflow_fail(stage: str, error: str, data: dict[str, Any] | None = None) -> None:
+        if not workflow_id:
+            return
+        async with BOT_DATA_LOCK:
+            fail_workflow(context.bot_data, workflow_id, at_ms=now_ms(), stage=stage, error=error, data=data)
+            await persist_context_memory(context, reason="workflow_failed", force=True, caller_holds_lock=True)
+
     async with BOT_DATA_LOCK:
-        settings_snapshot = dict(get_group_settings(context.bot_data, chat.id))
-        pre_policy_scan = apply_group_scan_policy(
+        workflow = begin_workflow(
             context.bot_data,
-            chat.id,
-            pre_scan,
-            file_size=file_size,
+            kind="file_moderation",
+            chat_id=chat.id,
+            actor_id=sender_id,
+            source="telegram_group",
+            subject_id=message.message_id,
+            metadata={
+                "file_name": file_name_meta,
+                "mime_type": mime_type_meta,
+                "file_size": file_size,
+                "sender_name": sender.full_name if sender else "Unknown",
+                "message_id": message.message_id,
+            },
+            at_ms=now_ms(),
         )
-
-    if not settings_snapshot.get("protection_enabled", True):
-        return
-
-    # v3.5: admin bypass is allowed only when both the core scanner and the
-    # current group policy consider the file clean. Preset rules such as
-    # Documents Only, archive blocking, and max-size limits cannot be bypassed.
-    strict_admins = bool(settings_snapshot.get("strict_enforcement_on_admins", STRICT_ENFORCEMENT_ON_ADMINS_DEFAULT))
-    allow_admin_bypass = bool(ADMIN_BYPASS_ENABLED and sender_id and not strict_admins and not pre_policy_scan.blocked)
-    if allow_admin_bypass:
-        try:
-            admin_ids = await get_chat_admin_ids_cached(context, chat.id, allow_api=True)
-            if sender_id in admin_ids or sender_id in BOT_OWNER_IDS:
-                logger.info(
-                    "Document scan bypassed for verified admin/owner clean file chat_id=%s user_id=%s file_name=%r admin_bypass_enabled=%s strict_admins=%s",
-                    chat.id,
-                    sender_id,
-                    file_name_meta,
-                    ADMIN_BYPASS_ENABLED,
-                    strict_admins,
-                )
-                return
-        except Exception:
-            logger.exception("Admin bypass check failed; continuing with scanner chat_id=%s user_id=%s", chat.id, sender_id, exc_info=True)
-    elif sender_id and pre_scan.blocked and (not strict_admins or sender_id in BOT_OWNER_IDS):
-        logger.info(
-            "Admin/owner upload will be scanned because filename/MIME is blocked chat_id=%s user_id=%s file_name=%r reason=%s",
-            chat.id,
-            sender_id,
-            file_name_meta,
-            pre_scan.reason_code,
-        )
-
-    if file_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
-        logger.warning(
-            "Incoming document exceeds Telegram Bot API download limit; filename/MIME policy only chat_id=%s user_id=%s file_name=%r size=%s limit=%s",
-            chat.id,
-            sender_id,
-            file_name_meta,
-            file_size,
-            TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES,
-        )
+        workflow_id = str(workflow["id"])
 
     try:
+        pre_scan = scan_filename_only(file_name_meta, mime_type_meta)
+        async with BOT_DATA_LOCK:
+            settings_snapshot = dict(get_group_settings(context.bot_data, chat.id))
+            pre_policy_scan = apply_group_scan_policy(context.bot_data, chat.id, pre_scan, file_size=file_size)
+        await workflow_advance(
+            "policy_evaluated",
+            pre_policy_scan.reason_code,
+            {"blocked": pre_policy_scan.blocked, "reason": pre_policy_scan.reason_code},
+        )
+
+        if not settings_snapshot.get("protection_enabled", True):
+            await workflow_complete("protection_disabled", "group protection is disabled")
+            return
+
+        # Admin bypass applies only to files that both core and group policy consider clean.
+        strict_admins = bool(settings_snapshot.get("strict_enforcement_on_admins", STRICT_ENFORCEMENT_ON_ADMINS_DEFAULT))
+        allow_admin_bypass = bool(ADMIN_BYPASS_ENABLED and sender_id and not strict_admins and not pre_policy_scan.blocked)
+        if allow_admin_bypass:
+            try:
+                admin_ids = await get_chat_admin_ids_cached(context, chat.id, allow_api=True)
+                if sender_id in admin_ids or sender_id in BOT_OWNER_IDS:
+                    logger.info(
+                        "Document workflow bypassed for verified admin workflow_id=%s chat_id=%s user_id=%s file_name=%r",
+                        workflow_id,
+                        chat.id,
+                        sender_id,
+                        file_name_meta,
+                    )
+                    await workflow_complete("admin_bypass", "verified administrator clean-file bypass")
+                    return
+            except Exception:
+                logger.exception(
+                    "Admin bypass check failed; scanner continues workflow_id=%s chat_id=%s user_id=%s",
+                    workflow_id,
+                    chat.id,
+                    sender_id,
+                    exc_info=True,
+                )
+        elif sender_id and pre_scan.blocked and (not strict_admins or sender_id in BOT_OWNER_IDS):
+            logger.info(
+                "Admin upload remains blocked workflow_id=%s chat_id=%s user_id=%s reason=%s",
+                workflow_id,
+                chat.id,
+                sender_id,
+                pre_scan.reason_code,
+            )
+
+        if file_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
+            logger.warning(
+                "Incoming document exceeds Telegram download limit workflow_id=%s chat_id=%s user_id=%s file_name=%r size=%s",
+                workflow_id,
+                chat.id,
+                sender_id,
+                file_name_meta,
+                file_size,
+            )
+
         can_hash_for_trusted_policy = bool(
             trusted_hash_whitelist_enabled(context.bot_data)
             and file_size > 0
             and file_size <= trusted_hash_max_download_bytes(context.bot_data)
             and file_size <= TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES
         )
-        # Avoid unnecessary Telegram downloads when filename/size/group policy
-        # already blocks the file and no trusted-hash exception can be checked.
         if pre_policy_scan.blocked and not can_hash_for_trusted_policy:
             scan = pre_policy_scan
         else:
             scan = await scan_document(context, document, chat_id=chat.id)
             async with BOT_DATA_LOCK:
                 scan = apply_group_scan_policy(context.bot_data, chat.id, scan, file_size=file_size)
-    except Exception:
-        logger.exception("Document scanner failed chat_id=%s message_id=%s", getattr(chat, "id", None), getattr(message, "message_id", None), exc_info=True)
-        await safe_send_message(context, chat.id, tr_group(context.bot_data, chat.id, "unknown_error"))
-        return
-
-    if not scan.blocked:
-        return
-
-    if file_size > TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES:
-        logger.info(
-            "Large document blocked by filename/MIME policy without byte download chat_id=%s user_id=%s file_name=%r reason=%s",
-            chat.id,
-            sender_id,
-            file_name_meta,
+        await workflow_advance(
+            "scanned",
             scan.reason_code,
+            {"blocked": scan.blocked, "reason": scan.reason_code, "sha256": scan.file_sha256},
         )
 
-    sender_name_raw = sender.full_name if sender else "Unknown"
-    file_name = scan.file_name
+        if not scan.blocked:
+            await workflow_complete("allowed", scan.reason_code, {"reason": scan.reason_code})
+            return
 
-    deleted = False
-    for attempt in (1, 2):
-        try:
-            await message.delete()
-            deleted = True
-            break
-        except RetryAfter as exc:
-            if attempt == 1 and await _sleep_for_retry_after(exc, operation="delete_message"):
-                continue
-            break
-        except (TimedOut, BadRequest, Forbidden, TelegramError):
-            logger.exception("Could not delete blocked file chat_id=%s message_id=%s", chat.id, message.message_id, exc_info=True)
-            await invalidate_chat_caches(chat.id, context.bot_data)
+        sender_name_raw = sender.full_name if sender else "Unknown"
+        file_name = scan.file_name
+
+        deleted = False
+        for attempt in (1, 2):
+            try:
+                await message.delete()
+                deleted = True
+                break
+            except RetryAfter as exc:
+                if attempt == 1 and await _sleep_for_retry_after(exc, operation="delete_message"):
+                    continue
+                break
+            except (TimedOut, BadRequest, Forbidden, TelegramError) as exc:
+                logger.exception(
+                    "Could not delete blocked file workflow_id=%s chat_id=%s message_id=%s",
+                    workflow_id,
+                    chat.id,
+                    message.message_id,
+                    exc_info=True,
+                )
+                await invalidate_chat_caches(chat.id, context.bot_data)
+                await safe_send_message(context, chat.id, tr_group(context.bot_data, chat.id, "delete_failed"))
+                await workflow_fail("delete_failed", str(exc), {"reason": scan.reason_code})
+                return
+            except Exception as exc:
+                logger.exception(
+                    "Unexpected delete failure workflow_id=%s chat_id=%s message_id=%s",
+                    workflow_id,
+                    chat.id,
+                    message.message_id,
+                    exc_info=True,
+                )
+                await workflow_fail("delete_failed", str(exc), {"reason": scan.reason_code})
+                return
+        if not deleted:
             await safe_send_message(context, chat.id, tr_group(context.bot_data, chat.id, "delete_failed"))
+            await workflow_fail("delete_failed", "Telegram did not confirm message deletion", {"reason": scan.reason_code})
             return
-        except Exception:
-            logger.exception("Unexpected delete failure chat_id=%s message_id=%s", chat.id, message.message_id, exc_info=True)
-            return
-    if not deleted:
-        await safe_send_message(context, chat.id, tr_group(context.bot_data, chat.id, "delete_failed"))
-        return
+        await workflow_advance("deleted", "blocked file deleted", {"message_id": message.message_id})
 
-    try:
         await remember_user_profile(context.bot_data, sender)
-        await remember_group(context.bot_data, chat.id, lang=get_group_lang(context.bot_data, chat.id), title=chat.title or str(chat.id), chat_type=str(chat.type))
+        await remember_group(
+            context.bot_data,
+            chat.id,
+            lang=get_group_lang(context.bot_data, chat.id),
+            title=chat.title or str(chat.id),
+            chat_type=str(chat.type),
+        )
         user_mention = user_link(sender_id, sender_name_raw)
         scan_reason = describe_scan_reason(scan.reason_code, (scan.reason_display, *scan.details))
         async with BOT_DATA_LOCK:
             settings = dict(get_group_settings(context.bot_data, chat.id))
-
-        notification_policy = str(settings.get("notification_policy") or "group_and_admins")
-        send_group_notice = notification_policy in {"group_and_admins", "group_only"}
-        send_admin_notice = notification_policy in {"group_and_admins", "admins_only"}
+        send_group_notice, send_admin_notice = moderation_notification_targets(settings)
 
         if send_group_notice:
             group_notice = tr_group(context.bot_data, chat.id, "exe_removed_group", user=user_mention, reason=h(scan_reason))
@@ -6363,16 +6477,61 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "matched_extension": scan.matched_extension,
                 "file_sha256": scan.file_sha256,
                 "message_id": message.message_id,
+                "workflow_id": workflow_id,
                 "alert_messages": {},
             }
             context.bot_data.setdefault("incidents", {})[ikey] = incident_record
             ensure_incident_action_token(context.bot_data, ikey)
+            advance_workflow(
+                context.bot_data,
+                workflow_id,
+                stage="incident_recorded",
+                at_ms=now_ms(),
+                detail=ikey,
+                data={"incident_key": ikey},
+            )
             await persist_context_memory(context, reason="incident_created", force=True, caller_holds_lock=True)
-        await maybe_apply_auto_action(context, chat_id=chat.id, sender_id=sender_id, sender_name=sender_name_raw, ikey=ikey)
+
+        auto_report = await maybe_apply_auto_action(
+            context,
+            chat_id=chat.id,
+            sender_id=sender_id,
+            sender_name=sender_name_raw,
+            ikey=ikey,
+        )
+        await workflow_advance("auto_action", auto_report.get("result", ""), auto_report)
+
+        alert_report = {"requested": 0, "delivered": 0, "failed": 0, "admin_ids": []}
         if send_admin_notice:
-            await notify_admins(context, chat.id, chat.title or str(chat.id), sender, file_name, ikey, scan_reason)
-    except Exception:
-        logger.exception("Post-delete incident workflow failed chat_id=%s user_id=%s", chat.id, user_id, exc_info=True)
+            alert_report = await notify_admins(
+                context,
+                chat.id,
+                chat.title or str(chat.id),
+                sender,
+                file_name,
+                ikey,
+                scan_reason,
+            )
+        await workflow_advance("notifications", "notification workflow completed", alert_report)
+        await workflow_complete(
+            "blocked_and_removed",
+            scan_reason,
+            {
+                "incident_key": ikey,
+                "auto_action": auto_report,
+                "notifications": alert_report,
+            },
+            persist=True,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Document moderation workflow failed workflow_id=%s chat_id=%s user_id=%s",
+            workflow_id,
+            getattr(chat, "id", None),
+            user_id,
+            exc_info=True,
+        )
+        await workflow_fail("workflow_exception", str(exc))
         await safe_send_message(context, chat.id, tr_group(context.bot_data, chat.id, "unknown_error"))
 
 
@@ -6519,6 +6678,10 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         perms = await get_bot_member_cached(context, chat.id, force=True, allow_api=True)
+        async with BOT_DATA_LOCK:
+            sync_report = reconcile_group_state(context.bot_data, chat.id, at_ms=now_ms())
+            await persist_context_memory(context, reason="status_group_sync", force=True, caller_holds_lock=True)
+        logger.info("Group state synchronized from /status chat_id=%s report=%s", chat.id, sync_report)
         msg = tr(context.bot_data, user_id, "status_ok" if has_delete_permission(perms) else "status_no")
     except (TimedOut, BadRequest, Forbidden, TelegramError) as exc:
         logger.exception("/status permission check failed chat_id=%s", chat.id, exc_info=True)
@@ -6583,7 +6746,10 @@ async def post_init(application: Application) -> None:
     await init_supabase_memory(application)
     async with BOT_DATA_LOCK:
         sanitize_bot_data_in_place(application.bot_data)
+        recovered_workflows = recover_interrupted_workflows(application.bot_data, at_ms=now_ms())
         await persist_context_memory(application, reason="state_sanitized_startup", force=True, caller_holds_lock=True)
+    if recovered_workflows:
+        logger.warning("Recovered %s interrupted workflow(s) during startup", recovered_workflows)
 
     try:
         # Hide the Telegram slash-command menu so users manage the bot from buttons.

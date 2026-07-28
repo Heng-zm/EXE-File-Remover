@@ -40,3 +40,14 @@ def test_missing_durable_backend_warns_not_crashes():
     report = validate_startup_config(config)
     assert report.ok
     assert any(issue.code == "memory_only" for issue in report.warnings)
+
+
+def test_example_placeholders_are_rejected():
+    config = valid_config()
+    config["BOT_TOKEN"] = "123456789:replace_with_real_botfather_token"
+    config["WEBHOOK_SECRET_TOKEN"] = "replace_with_random_header_secret_32_chars"
+    config["WEBHOOK_PATH_SECRET"] = "replace_with_different_random_path_secret"
+    report = validate_startup_config(config, available_dependencies={"fastapi", "uvicorn"})
+    codes = {issue.code for issue in report.errors}
+    assert "bot_token" in codes
+    assert "webhook_secrets" in codes

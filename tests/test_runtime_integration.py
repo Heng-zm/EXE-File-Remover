@@ -101,6 +101,26 @@ def _install_telegram_stubs() -> None:
         async def set_webhook(self, **kwargs):
             self.webhook_kwargs = kwargs
 
+        async def get_chat_administrators(self, chat_id):
+            return [types.SimpleNamespace(user=types.SimpleNamespace(id=42, full_name="Tester", username="tester"), status="administrator")]
+
+        async def get_chat_member(self, chat_id, user_id):
+            if int(user_id) == int(self.id):
+                return types.SimpleNamespace(status="administrator", can_delete_messages=True, can_restrict_members=True)
+            return types.SimpleNamespace(status="administrator", can_delete_messages=True, can_restrict_members=True)
+
+        async def ban_chat_member(self, chat_id, user_id):
+            return True
+
+        async def restrict_chat_member(self, chat_id, user_id, **kwargs):
+            return True
+
+        async def send_message(self, chat_id, text, **kwargs):
+            return types.SimpleNamespace(message_id=123)
+
+        async def edit_message_text(self, **kwargs):
+            return True
+
     class StubApplication:
         def __init__(self):
             self.bot_data = {}
@@ -219,12 +239,12 @@ def test_runtime_migrates_local_state_and_tracks_schema_meta():
     }
 
     assert bot.migrate_local_bot_data_in_place(state) is True
-    assert state[bot.LOCAL_STATE_META_KEY]["schema"] == 6
+    assert state[bot.LOCAL_STATE_META_KEY]["schema"] == 7
     assert 42 in state["user_state"]
     assert "-1001" in state["group_state"]
 
     payload = bot.export_bot_data_for_storage(state)
-    assert payload["_meta"]["schema"] == 6
+    assert payload["_meta"]["schema"] == 7
     assert payload["_meta"]["revision"] >= state[bot.LOCAL_STATE_META_KEY]["revision"]
 
 
@@ -270,6 +290,7 @@ def test_authenticated_v35_policy_and_incident_routes():
         bootstrap = client.post("/api/bootstrap", headers=headers, json={})
         assert bootstrap.status_code == 200
         assert bootstrap.json()["features"]["group_policies"] is True
+        assert bootstrap.json()["features"]["workflow_center"] is True
 
         policies = client.get("/api/groups/-1001/policies?lang=km", headers=headers)
         assert policies.status_code == 200
@@ -297,3 +318,106 @@ def test_authenticated_v35_policy_and_incident_routes():
         assert payload["total"] == 1
         assert payload["incidents"][0]["severity"] == "critical"
         assert payload["pagination"]["page_size"] == 1
+
+
+        synchronized = client.post("/api/groups/-1001/sync", headers=headers, json={})
+        assert synchronized.status_code == 200
+        sync_payload = synchronized.json()
+        assert sync_payload["ok"] is True
+        assert sync_payload["workflow"]["status"] == "completed"
+        assert sync_payload["report"]["chat_id"] == -1001
+
+        workflows = client.get("/api/groups/-1001/workflows?limit=20&include_events=true", headers=headers)
+        assert workflows.status_code == 200
+        workflow_payload = workflows.json()
+        assert workflow_payload["total"] >= 1
+        assert any(item["kind"] == "group_sync" for item in workflow_payload["workflows"])
+
+
+def test_group_document_runs_one_coordinated_workflow(monkeypatch):
+    import asyncio
+
+    bot = _load_runtime()
+    application = bot.build_application()
+    application.bot_data.update(
+        {
+            "group_state": {
+                "-1001": {
+                    "title": "Security Group",
+                    "lang": "en",
+                    "settings": {
+                        "protection_enabled": True,
+                        "strictness": "standard",
+                        "auto_action_mode": "off",
+                        "notification_policy": "group_only",
+                    },
+                }
+            }
+        }
+    )
+
+    async def no_persist(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(bot, "persist_context_memory", no_persist)
+    monkeypatch.setattr(bot, "trusted_hash_whitelist_enabled", lambda bot_data: False)
+
+    sender = types.SimpleNamespace(
+        id=7,
+        first_name="Sender",
+        last_name="",
+        full_name="Sender",
+        username="sender",
+        language_code="en",
+        is_bot=False,
+    )
+    document = types.SimpleNamespace(
+        file_id="file-1",
+        file_name="payload.exe",
+        mime_type="application/octet-stream",
+        file_size=1024,
+    )
+
+    class Message:
+        message_id = 55
+        from_user = sender
+
+        def __init__(self):
+            self.document = document
+            self.deleted = False
+
+        async def delete(self):
+            self.deleted = True
+
+    message = Message()
+    chat = types.SimpleNamespace(id=-1001, title="Security Group", type="supergroup")
+    update = types.SimpleNamespace(
+        effective_message=message,
+        effective_chat=chat,
+        effective_user=sender,
+    )
+    context = types.SimpleNamespace(
+        bot=application.bot,
+        bot_data=application.bot_data,
+        job_queue=None,
+        application=application,
+    )
+
+    asyncio.run(bot.handle_document(update, context))
+
+    assert message.deleted is True
+    incidents = application.bot_data["incidents"]
+    assert len(incidents) == 1
+    incident = next(iter(incidents.values()))
+    assert incident["workflow_id"]
+    workflows = application.bot_data["workflow_history"]
+    moderation = next(item for item in workflows if item["id"] == incident["workflow_id"])
+    assert moderation["kind"] == "file_moderation"
+    assert moderation["status"] == "completed"
+    assert moderation["outcome"] == "blocked_and_removed"
+    stages = [event["stage"] for event in moderation["events"]]
+    assert "policy_evaluated" in stages
+    assert "scanned" in stages
+    assert "deleted" in stages
+    assert "incident_recorded" in stages
+    assert "notifications" in stages

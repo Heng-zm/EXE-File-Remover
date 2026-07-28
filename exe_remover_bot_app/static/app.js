@@ -27,6 +27,7 @@ const state = {
   formats: null,
   hashes: null,
   administration: null,
+  workflows: null,
 };
 
 const TAB_DEFS = [
@@ -35,6 +36,7 @@ const TAB_DEFS = [
   ["incidents", "⚠", "incidents"],
   ["formats", "▤", "formats"],
   ["trusted", "✓", "trustedFiles"],
+  ["workflow", "⇄", "workflowCenter"],
   ["administration", "♟", "administration"],
 ];
 
@@ -280,7 +282,7 @@ function renderMetrics() {
       <div class="metric-card"><span class="metric-label">${esc(t("protection"))}</span><strong class="metric-value">${esc(settings.protection_enabled ? t("enabled") : t("disabled"))}</strong><div class="metric-detail">${esc(localizedSetting(settings.strictness))}</div></div>
       <div class="metric-card"><span class="metric-label">${esc(t("openIncidents"))}</span><strong class="metric-value">${Number(counts.open_incidents || 0)}</strong><div class="metric-detail">${esc(t("incidents"))}</div></div>
       <div class="metric-card"><span class="metric-label">${esc(t("alertReady"))}</span><strong class="metric-value">${Number(counts.admin_alert_ready || 0)}/${Number(counts.admin_alert_total || 0)}</strong><div class="metric-detail">${esc(t("admins"))}</div></div>
-      <div class="metric-card"><span class="metric-label">${esc(t("storage"))}</span><strong class="metric-value">${esc(overview.backend || "Connected")}</strong><div class="metric-detail">v3.5</div></div>
+      <div class="metric-card"><span class="metric-label">${esc(t("workflowFailures"))}</span><strong class="metric-value">${Number(counts.workflow_failed || 0)}</strong><div class="metric-detail">${Number(counts.workflow_running || 0)} ${esc(t("running"))}</div></div>
     </section>`;
 }
 
@@ -451,6 +453,89 @@ function renderTrusted() {
     </section>`;
 }
 
+function workflowKindLabel(kind) {
+  const map = {
+    file_moderation: "fileModeration",
+    incident_action: "incidentActionWorkflow",
+    policy_update: "policyUpdateWorkflow",
+    group_sync: "groupSyncWorkflow",
+  };
+  return t(map[kind]) || titleCase(kind);
+}
+
+function workflowStageLabel(stage) {
+  const map = {
+    received: "receivedStage",
+    policy_evaluated: "policyEvaluatedStage",
+    scanned: "scannedStage",
+    deleted: "deletedStage",
+    incident_recorded: "incidentRecordedStage",
+    auto_action: "autoActionStage",
+    notifications: "notificationsStage",
+    authorized: "authorizedStage",
+    executed: "executedStage",
+    alerts_synchronized: "alertsSynchronizedStage",
+    validated: "validatedStage",
+    applied: "appliedStage",
+    persisted: "persistedStage",
+    permissions_refreshed: "permissionsRefreshedStage",
+    state_reconciled: "stateReconciledStage",
+    completed: "completed",
+    failed: "failed",
+    interrupted: "interrupted",
+  };
+  return t(map[stage]) || titleCase(stage);
+}
+
+function workflowStatusClass(status) {
+  if (status === "completed") return "low";
+  if (status === "failed" || status === "interrupted") return "critical";
+  return "medium";
+}
+
+function renderWorkflow() {
+  const data = state.workflows;
+  if (!data) return renderLoadingPanel();
+  const counts = data.counts || {};
+  const sync = state.group?.sync || {};
+  const rows = data.workflows || [];
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <div><h2>${esc(t("workflowCenter"))}</h2><p>${esc(t("workflowHelp"))}</p></div>
+        <button class="button primary small" id="workflow-sync" type="button" ${state.busy ? "disabled" : ""}>⇄ ${esc(t("syncNow"))}</button>
+      </div>
+      <div class="panel-grid">
+        <div class="info-list">
+          <div class="info-row"><span>${esc(t("running"))}</span><strong>${Number(counts.running || 0)}</strong></div>
+          <div class="info-row"><span>${esc(t("completed"))}</span><strong>${Number(counts.completed || 0)}</strong></div>
+        </div>
+        <div class="info-list">
+          <div class="info-row"><span>${esc(t("failed"))}</span><strong class="${Number(counts.failed || 0) ? "text-danger" : "text-success"}">${Number(counts.failed || 0)}</strong></div>
+          <div class="info-row"><span>${esc(t("lastSync"))}</span><strong>${esc(formatDate(sync.last_sync_at || sync.last_sync_ms))}</strong></div>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-header"><div><h2>${esc(t("recentWorkflows"))}</h2></div><button class="button small" id="workflow-refresh" type="button">↻ ${esc(t("refresh"))}</button></div>
+      <div class="workflow-list">
+        ${rows.length ? rows.map((item) => `
+          <article class="workflow-row">
+            <div class="workflow-row-top">
+              <div class="list-main">
+                <strong>${esc(workflowKindLabel(item.kind))}</strong>
+                <span>${esc(item.metadata?.file_name || item.subject_id || item.outcome || "")}</span>
+              </div>
+              <span class="severity-badge ${workflowStatusClass(item.status)}">${esc(t(item.status) || titleCase(item.status))}</span>
+            </div>
+            <div class="workflow-track" aria-label="${esc(t("progress"))} ${Number(item.progress || 0)}%"><span style="width:${Math.max(0, Math.min(100, Number(item.progress || 0)))}%"></span></div>
+            <div class="workflow-meta"><span>${esc(workflowStageLabel(item.stage))}</span><span>${esc(formatDate(item.updated_at || item.updated_at_ms))}</span></div>
+            ${item.detail ? `<p class="muted">${esc(item.detail)}</p>` : ""}
+          </article>`).join("") : `<p class="muted">${esc(t("noWorkflows"))}</p>`}
+      </div>
+    </section>`;
+}
+
 function renderAdministration() {
   const data = state.administration;
   if (!data) return renderLoadingPanel();
@@ -476,6 +561,7 @@ function renderTabContent() {
   if (state.tab === "incidents") return renderIncidents();
   if (state.tab === "formats") return renderFormats();
   if (state.tab === "trusted") return renderTrusted();
+  if (state.tab === "workflow") return renderWorkflow();
   if (state.tab === "administration") return renderAdministration();
   return "";
 }
@@ -536,6 +622,8 @@ function bindEvents() {
   document.querySelector("#formats-form")?.addEventListener("submit", saveFormats);
   document.querySelector("#hash-form")?.addEventListener("submit", addHash);
   document.querySelectorAll("[data-remove-hash]").forEach((button) => button.addEventListener("click", () => removeHash(button.dataset.removeHash)));
+  document.querySelector("#workflow-sync")?.addEventListener("click", synchronizeGroup);
+  document.querySelector("#workflow-refresh")?.addEventListener("click", () => loadWorkflows(true));
   document.querySelector("#admin-refresh")?.addEventListener("click", () => loadAdministration(true));
 }
 
@@ -606,6 +694,7 @@ async function loadGroup(chatId, refresh = false, rerender = true) {
     state.formats = null;
     state.hashes = null;
     state.administration = null;
+    state.workflows = null;
     await loadCurrentTab(false);
   } catch (error) {
     showToast(t("errorTitle"), "error", errorMessage(error));
@@ -629,6 +718,7 @@ async function loadCurrentTab(rerender = true) {
     else if (state.tab === "incidents") await loadIncidents(false);
     else if (state.tab === "formats") await loadFormats(false);
     else if (state.tab === "trusted") await loadHashes(false);
+    else if (state.tab === "workflow") await loadWorkflows(false);
     else if (state.tab === "administration") await loadAdministration(false, false);
   } catch (error) {
     showToast(t("errorTitle"), "error", errorMessage(error));
@@ -660,6 +750,27 @@ async function loadFormats(rerender = true) {
 async function loadHashes(rerender = true) {
   state.hashes = await api.hashes(state.currentGroupId);
   if (rerender) renderDashboard();
+}
+
+async function loadWorkflows(rerender = true) {
+  state.workflows = await api.workflows(state.currentGroupId, { limit: 75, include_events: false });
+  if (rerender) renderDashboard();
+}
+
+async function synchronizeGroup() {
+  state.busy = true;
+  renderDashboard();
+  try {
+    const result = await api.syncGroup(state.currentGroupId);
+    updateGroupSnapshot(result.group);
+    await loadWorkflows(false);
+    showToast(t("syncComplete"), "success", t("syncCompleteHelp"));
+  } catch (error) {
+    showToast(t("errorTitle"), "error", errorMessage(error));
+  } finally {
+    state.busy = false;
+    renderDashboard();
+  }
 }
 
 async function loadAdministration(refresh = false, rerender = true) {
@@ -795,7 +906,7 @@ async function handleIncident(token, action) {
   if (!confirmed) return;
   try {
     await api.incidentAction(token, action);
-    await Promise.all([loadIncidents(false), api.group(state.currentGroupId).then((result) => updateGroupSnapshot(result.group))]);
+    await Promise.all([loadIncidents(false), loadWorkflows(false), api.group(state.currentGroupId).then((result) => updateGroupSnapshot(result.group))]);
     renderDashboard();
     showToast(t("saved"));
   } catch (error) {

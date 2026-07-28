@@ -11,6 +11,15 @@ except ImportError:  # FastAPI remains optional for polling-only deployments.
     StaticFiles = None  # type: ignore[assignment]
 
 from .incidents import incident_action, incident_severity, incident_status, paginate_incidents
+from .workflow import (
+    advance_workflow,
+    begin_workflow,
+    complete_workflow,
+    fail_workflow,
+    list_workflows,
+    reconcile_group_state,
+    workflow_public_view,
+)
 
 # v3.5 compatibility bridge: the API layer is physically isolated while it
 # uses the mature Telegram runtime services through one explicit module handle.
@@ -381,6 +390,49 @@ def _api_mark_policy_updated(settings: dict[str, Any], user_id: int, *, detect_p
     settings["policy_updated_by"] = int(user_id)
 
 
+def _api_record_policy_workflow_locked(
+    bot_data: dict[str, Any],
+    *,
+    chat_id: int,
+    actor_id: int,
+    operation: str,
+    changed: Iterable[Any],
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Record one completed administration mutation in the shared workflow stream."""
+    changed_items = [str(item) for item in changed]
+    workflow = begin_workflow(
+        bot_data,
+        kind="policy_update",
+        chat_id=chat_id,
+        actor_id=actor_id,
+        source="miniapp",
+        subject_id=operation,
+        metadata={"operation": operation, "changed": changed_items, **(metadata or {})},
+        at_ms=now_ms(),
+    )
+    workflow_id = str(workflow["id"])
+    advance_workflow(bot_data, workflow_id, stage="validated", at_ms=now_ms(), detail="administration request validated")
+    advance_workflow(
+        bot_data,
+        workflow_id,
+        stage="applied",
+        at_ms=now_ms(),
+        detail=operation,
+        data={"changed": changed_items},
+    )
+    advance_workflow(bot_data, workflow_id, stage="persisted", at_ms=now_ms(), detail="included in durable state save")
+    completed = complete_workflow(
+        bot_data,
+        workflow_id,
+        at_ms=now_ms(),
+        outcome="policy_updated",
+        detail=operation,
+        data={"changed": changed_items},
+    )
+    return workflow_public_view(completed or {}, include_events=False)
+
+
 def _api_admin_ready_counts_locked(bot_data: dict[str, Any], chat_id: int) -> tuple[int, int]:
     cache = bot_data.get("admin_ids_cache", {}) if isinstance(bot_data.get("admin_ids_cache", {}), dict) else {}
     record = cache.get(str(int(chat_id))) or cache.get(int(chat_id)) or {}
@@ -422,6 +474,7 @@ def _api_group_snapshot_locked(bot_data: dict[str, Any], user_id: int, chat_id: 
     perms = get_bot_member_from_state(bot_data, chat_id)
     settings = _api_public_settings_locked(bot_data, chat_id)
     admin_ready, admin_total = _api_admin_ready_counts_locked(bot_data, chat_id)
+    workflow_page = list_workflows(bot_data, chat_id=int(chat_id), limit=1)
     return {
         "id": int(chat_id),
         "title": get_chat_title_from_state(bot_data, chat_id),
@@ -444,6 +497,13 @@ def _api_group_snapshot_locked(bot_data: dict[str, Any], user_id: int, chat_id: 
             "trusted_hashes": len(settings.get("trusted_file_hashes", [])),
             "admin_alert_ready": admin_ready,
             "admin_alert_total": admin_total,
+            "workflow_running": int(workflow_page.counts.get("running", 0)),
+            "workflow_failed": int(workflow_page.counts.get("failed", 0)) + int(workflow_page.counts.get("interrupted", 0)),
+        },
+        "sync": {
+            "last_sync_ms": _safe_int(state.get("last_sync_ms"), 0),
+            "last_sync_at": _api_ms_to_iso(state.get("last_sync_ms")),
+            "last_report": _api_json_safe(state.get("last_sync_report") if isinstance(state.get("last_sync_report"), dict) else {}),
         },
         "access": {
             "api_suppressed": is_chat_api_suppressed(bot_data, chat_id),
@@ -583,6 +643,8 @@ def _api_incident_locked(bot_data: dict[str, Any], ikey: str, incident: dict[str
         "created_at": _api_ms_to_iso(incident.get("created_at_ms") or incident_timestamp_ms(str(ikey))),
         "handled_at_ms": _safe_int(incident.get("handled_at_ms"), 0),
         "handled_at": _api_ms_to_iso(incident.get("handled_at_ms")),
+        "workflow_id": str(incident.get("workflow_id") or ""),
+        "last_action_workflow_id": str(incident.get("last_action_workflow_id") or ""),
     }
 
 
@@ -628,6 +690,33 @@ def _api_incidents_for_chat_locked(
         },
         "counts": dict(result.counts),
     }
+
+
+def _api_workflows_for_chat_locked(
+    bot_data: dict[str, Any],
+    chat_id: int,
+    *,
+    kind: str = "all",
+    status: str = "all",
+    limit: int = 50,
+    include_events: bool = False,
+) -> dict[str, Any]:
+    page = list_workflows(
+        bot_data,
+        chat_id=int(chat_id),
+        kind=kind,
+        status=status,
+        limit=limit,
+        include_events=include_events,
+    )
+    items = []
+    for item in page.items:
+        row = dict(item)
+        row["started_at"] = _api_ms_to_iso(row.get("started_at_ms"))
+        row["updated_at"] = _api_ms_to_iso(row.get("updated_at_ms"))
+        row["completed_at"] = _api_ms_to_iso(row.get("completed_at_ms"))
+        items.append(row)
+    return {"workflows": items, "total": page.total, "counts": dict(page.counts)}
 
 
 def _api_risk_list_locked(bot_data: dict[str, Any], chat_id: int, *, limit: int = 20) -> list[dict[str, Any]]:
@@ -727,6 +816,8 @@ def _api_route_catalog() -> dict[str, Any]:
             "admins": f"{prefix}/groups/{{chat_id}}/admins",
             "admin_logs": f"{prefix}/groups/{{chat_id}}/admin-logs",
             "health": f"{prefix}/groups/{{chat_id}}/health",
+            "workflows": f"{prefix}/groups/{{chat_id}}/workflows",
+            "sync": f"{prefix}/groups/{{chat_id}}/sync",
         },
         "tools": {
             "scanner_presets": f"{prefix}/scanner/presets",
@@ -774,6 +865,7 @@ def _api_public_bootstrap_payload(*, reason: str = "missing_init_data") -> dict[
             "incident_filters": False,
             "scanner_presets": True,
             "group_policies": False,
+            "workflow_center": False,
             "trusted_hashes": False,
             "developer_dashboard": False,
         },
@@ -829,6 +921,7 @@ def _api_session_payload_locked(bot_data: dict[str, Any], principal: MiniAppPrin
             "incident_filters": True,
             "scanner_presets": True,
             "group_policies": True,
+            "workflow_center": True,
             "trusted_hashes": trusted_hash_whitelist_enabled(bot_data),
             "developer_dashboard": principal.user_id in BOT_OWNER_IDS,
         },
@@ -845,6 +938,17 @@ def _api_session_payload_locked(bot_data: dict[str, Any], principal: MiniAppPrin
     return payload
 
 
+
+
+def _find_workflow_record(bot_data: dict[str, Any], workflow_id: str) -> dict[str, Any] | None:
+    history = bot_data.get("workflow_history", [])
+    if not isinstance(history, list):
+        return None
+    for item in reversed(history):
+        if isinstance(item, dict) and str(item.get("id") or "") == str(workflow_id):
+            return item
+    return None
+
 async def _api_perform_incident_action(
     application: Application,
     principal: MiniAppPrincipal,
@@ -858,6 +962,7 @@ async def _api_perform_incident_action(
     ikey = resolve_incident_action_key(application.bot_data, token_or_key)
     lock = await get_incident_lock(ikey)
     async with lock:
+        workflow_id = ""
         async with BOT_DATA_LOCK:
             incidents = application.bot_data.setdefault("incidents", {})
             incident = incidents.get(ikey) if isinstance(incidents, dict) else None
@@ -868,24 +973,65 @@ async def _api_perform_incident_action(
             chat_id = int(incident.get("chat_id") or 0)
             sender_id = int(incident.get("sender_id") or 0)
             sender_name_raw = str(incident.get("sender_name") or "Unknown")
+            workflow = begin_workflow(
+                application.bot_data,
+                kind="incident_action",
+                chat_id=chat_id,
+                actor_id=principal.user_id,
+                source="miniapp",
+                subject_id=ikey,
+                metadata={"action": action, "sender_id": sender_id, "sender_name": sender_name_raw},
+                at_ms=now_ms(),
+            )
+            workflow_id = str(workflow["id"])
 
-        await _api_require_group_admin(application, principal, chat_id, live=True)
+        try:
+            await _api_require_group_admin(application, principal, chat_id, live=True)
+        except Exception as exc:
+            async with BOT_DATA_LOCK:
+                fail_workflow(
+                    application.bot_data,
+                    workflow_id,
+                    at_ms=now_ms(),
+                    stage="authorization_failed",
+                    error=str(exc),
+                )
+                await persist_context_memory(application, reason="api_incident_workflow_failed", force=True, caller_holds_lock=True)
+            raise
+
+        async with BOT_DATA_LOCK:
+            advance_workflow(
+                application.bot_data,
+                workflow_id,
+                stage="authorized",
+                at_ms=now_ms(),
+                detail="group administrator verified",
+            )
 
         if action == "risk":
             async with BOT_DATA_LOCK:
                 incident = application.bot_data.setdefault("incidents", {}).get(ikey)
                 if not isinstance(incident, dict):
                     _api_raise(404, "incident not found or expired")
+                complete_workflow(
+                    application.bot_data,
+                    workflow_id,
+                    at_ms=now_ms(),
+                    outcome="risk_profile_viewed",
+                    detail="risk profile generated",
+                )
                 return {
                     "ok": True,
                     "action": "risk",
                     "risk_html": _format_user_risk_profile(application.bot_data, principal.user_id, incident),
                     "incident": _api_incident_locked(application.bot_data, ikey, incident),
+                    "workflow": workflow_public_view(_find_workflow_record(application.bot_data, workflow_id), include_events=True),
                 }
 
         action_success = False
         result_message = ""
         sender_name = h(sender_name_raw)
+        error_detail = ""
 
         if action == "ban":
             try:
@@ -902,7 +1048,8 @@ async def _api_perform_incident_action(
                         raise
                 action_success = True
                 result_message = tr(application.bot_data, principal.user_id, "action_ban_ok", name=sender_name)
-            except (TimedOut, BadRequest, Forbidden, TelegramError):
+            except (TimedOut, BadRequest, Forbidden, TelegramError) as exc:
+                error_detail = str(exc)
                 logger.exception("API ban failed chat_id=%s sender_id=%s", chat_id, sender_id, exc_info=True)
                 result_message = tr(application.bot_data, principal.user_id, "action_ban_fail")
         elif action == "warn":
@@ -914,7 +1061,8 @@ async def _api_perform_incident_action(
                     raise TelegramError(send_result.error or "warning message could not be delivered")
                 action_success = True
                 result_message = tr(application.bot_data, principal.user_id, "action_warn_ok", name=sender_name)
-            except (TimedOut, BadRequest, Forbidden, TelegramError):
+            except (TimedOut, BadRequest, Forbidden, TelegramError) as exc:
+                error_detail = str(exc)
                 logger.exception("API warn failed chat_id=%s sender_id=%s", chat_id, sender_id, exc_info=True)
                 result_message = tr(application.bot_data, principal.user_id, "action_warn_fail")
         else:
@@ -925,12 +1073,30 @@ async def _api_perform_incident_action(
             incident = application.bot_data.setdefault("incidents", {}).get(ikey)
             if not isinstance(incident, dict):
                 _api_raise(404, "incident not found or expired")
+            incident["last_action_workflow_id"] = workflow_id
             if action_success:
                 incident["done"] = True
                 incident["handled_by"] = principal.user_id
                 incident["handled_by_name"] = _api_full_name(principal.user)
                 incident["handled_at_ms"] = now_ms()
                 incident["action"] = action
+                advance_workflow(
+                    application.bot_data,
+                    workflow_id,
+                    stage="executed",
+                    at_ms=now_ms(),
+                    detail=f"incident action {action} succeeded",
+                    data={"action": action},
+                )
+            else:
+                fail_workflow(
+                    application.bot_data,
+                    workflow_id,
+                    at_ms=now_ms(),
+                    stage="execution_failed",
+                    error=error_detail or f"incident action {action} failed",
+                    data={"action": action},
+                )
             _record_admin_action_log_locked(
                 application.bot_data,
                 chat_id=chat_id,
@@ -946,8 +1112,36 @@ async def _api_perform_incident_action(
 
         if action_success:
             await sync_handled_alert_messages(application, incident)
+            async with BOT_DATA_LOCK:
+                advance_workflow(
+                    application.bot_data,
+                    workflow_id,
+                    stage="alerts_synchronized",
+                    at_ms=now_ms(),
+                    detail="administrator alert messages synchronized",
+                )
+                completed = complete_workflow(
+                    application.bot_data,
+                    workflow_id,
+                    at_ms=now_ms(),
+                    outcome=f"incident_{action}",
+                    detail=result_message,
+                )
+                await persist_context_memory(application, reason="api_incident_workflow_complete", force=True, caller_holds_lock=True)
+                workflow_response = workflow_public_view(completed or {}, include_events=True)
+        else:
+            async with BOT_DATA_LOCK:
+                failed = _find_workflow_record(application.bot_data, workflow_id)
+                workflow_response = workflow_public_view(failed or {}, include_events=True)
 
-        return {"ok": bool(action_success), "action": action, "message": result_message, "incident": incident_response}
+        return {
+            "ok": bool(action_success),
+            "action": action,
+            "message": result_message,
+            "incident": incident_response,
+            "workflow": workflow_response,
+        }
+
 
 
 def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
@@ -1362,6 +1556,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
                     action="api update group policy",
                     result=", ".join(changed),
                 )
+                _api_record_policy_workflow_locked(application.bot_data, chat_id=chat_id, actor_id=principal.user_id, operation="update group policies", changed=changed)
                 await persist_context_memory(application, reason="api_group_policy_update", force=True, caller_holds_lock=True)
             group = _api_group_snapshot_locked(application.bot_data, principal.user_id, chat_id)
         return {"ok": True, "changed": changed, "policy": group["settings"], "group": group}
@@ -1389,6 +1584,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
                 action="api apply scanner preset",
                 result=normalized,
             )
+            _api_record_policy_workflow_locked(application.bot_data, chat_id=chat_id, actor_id=principal.user_id, operation="apply scanner preset", changed=changed, metadata={"preset": normalized})
             await persist_context_memory(application, reason="api_scanner_preset_apply", force=True, caller_holds_lock=True)
             group = _api_group_snapshot_locked(application.bot_data, principal.user_id, chat_id)
         return {"ok": True, "preset": normalized, "changed": changed, "group": group}
@@ -1440,6 +1636,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             if changed:
                 _api_mark_policy_updated(settings, principal.user_id, detect_preset=True)
                 _record_admin_action_log_locked(application.bot_data, chat_id=chat_id, admin_id=principal.user_id, admin_name=_api_full_name(principal.user), action="api update settings", result=", ".join(changed))
+                _api_record_policy_workflow_locked(application.bot_data, chat_id=chat_id, actor_id=principal.user_id, operation="update group settings", changed=changed)
                 await persist_context_memory(application, reason="api_group_settings_update", force=True, caller_holds_lock=True)
             group = _api_group_snapshot_locked(application.bot_data, principal.user_id, chat_id)
         return {"ok": True, "changed": changed, "group": group}
@@ -1478,6 +1675,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             settings[key] = _api_extension_values(combined, allowed=(kind == "allowed"))
             _api_mark_policy_updated(settings, principal.user_id, detect_preset=True)
             _record_admin_action_log_locked(application.bot_data, chat_id=chat_id, admin_id=principal.user_id, admin_name=_api_full_name(principal.user), action=f"api {mode} {kind} formats", result=", ".join(settings[key]) or "empty")
+            _api_record_policy_workflow_locked(application.bot_data, chat_id=chat_id, actor_id=principal.user_id, operation=f"{mode} {kind} formats", changed=[key], metadata={"extensions": list(settings.get(key, []))})
             await persist_context_memory(application, reason="api_formats_update", force=True, caller_holds_lock=True)
             return {"ok": True, "kind": kind, "extensions": list(settings.get(key, [])), "group": _api_group_snapshot_locked(application.bot_data, principal.user_id, chat_id)}
 
@@ -1495,6 +1693,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             settings[key] = [item for item in settings.get(key, []) if item != normalized]
             _api_mark_policy_updated(settings, principal.user_id, detect_preset=True)
             _record_admin_action_log_locked(application.bot_data, chat_id=chat_id, admin_id=principal.user_id, admin_name=_api_full_name(principal.user), action=f"api delete {kind} format", result=normalized)
+            _api_record_policy_workflow_locked(application.bot_data, chat_id=chat_id, actor_id=principal.user_id, operation=f"delete {kind} format", changed=[key], metadata={"extension": normalized})
             await persist_context_memory(application, reason="api_format_delete", force=True, caller_holds_lock=True)
             return {"ok": True, "kind": kind, "extensions": list(settings.get(key, []))}
 
@@ -1521,6 +1720,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             if not ok:
                 _api_raise(400, "could not add trusted hash; check max hash limit")
             _record_admin_action_log_locked(application.bot_data, chat_id=chat_id, admin_id=principal.user_id, admin_name=_api_full_name(principal.user), action="api add trusted hash", result=short_hash(digest))
+            _api_record_policy_workflow_locked(application.bot_data, chat_id=chat_id, actor_id=principal.user_id, operation="add trusted hash", changed=["trusted_file_hashes"], metadata={"digest": short_hash(digest)})
             await persist_context_memory(application, reason="api_hash_add", force=True, caller_holds_lock=True)
             settings = get_group_settings(application.bot_data, chat_id)
             return {"ok": True, "hashes": list(settings.get("trusted_file_hashes", []))}
@@ -1534,6 +1734,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             if not ok:
                 _api_raise(404, "trusted hash not found")
             _record_admin_action_log_locked(application.bot_data, chat_id=chat_id, admin_id=principal.user_id, admin_name=_api_full_name(principal.user), action="api delete trusted hash", result=str(digest)[:12])
+            _api_record_policy_workflow_locked(application.bot_data, chat_id=chat_id, actor_id=principal.user_id, operation="delete trusted hash", changed=["trusted_file_hashes"], metadata={"digest": str(digest)[:12]})
             await persist_context_memory(application, reason="api_hash_delete", force=True, caller_holds_lock=True)
             settings = get_group_settings(application.bot_data, chat_id)
             return {"ok": True, "hashes": list(settings.get("trusted_file_hashes", []))}
@@ -1545,6 +1746,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         async with BOT_DATA_LOCK:
             clear_trusted_file_hashes(application.bot_data, chat_id)
             _record_admin_action_log_locked(application.bot_data, chat_id=chat_id, admin_id=principal.user_id, admin_name=_api_full_name(principal.user), action="api clear trusted hashes", result="cleared")
+            _api_record_policy_workflow_locked(application.bot_data, chat_id=chat_id, actor_id=principal.user_id, operation="clear trusted hashes", changed=["trusted_file_hashes"])
             await persist_context_memory(application, reason="api_hash_clear", force=True, caller_holds_lock=True)
         return {"ok": True, "hashes": []}
 
@@ -1602,6 +1804,121 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         payload = await _api_request_json(request)
         action = str(payload.get("action") or "").strip().casefold()
         return await _api_perform_incident_action(application, principal, token_or_key, action)
+
+    @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/workflows")
+    async def api_group_workflows(
+        chat_id: int,
+        request: Request,
+        kind: str = "all",
+        status: str = "all",
+        limit: int = 50,
+        include_events: bool = False,
+    ) -> dict[str, Any]:
+        principal = await _api_principal_from_request(request)
+        await _api_require_group_admin(application, principal, chat_id, live=False)
+        kind_clean = str(kind or "all").strip().casefold()
+        status_clean = str(status or "all").strip().casefold()
+        if kind_clean not in {"all", "file_moderation", "incident_action", "policy_update", "group_sync"}:
+            _api_raise(400, "invalid workflow kind")
+        if status_clean not in {"all", "running", "completed", "failed", "interrupted"}:
+            _api_raise(400, "invalid workflow status")
+        async with BOT_DATA_LOCK:
+            result = _api_workflows_for_chat_locked(
+                application.bot_data,
+                chat_id,
+                kind=kind_clean,
+                status=status_clean,
+                limit=limit,
+                include_events=include_events,
+            )
+        return {"ok": True, **result}
+
+    @api.post(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/sync")
+    async def api_sync_group_workflow(chat_id: int, request: Request) -> dict[str, Any]:
+        principal = await _api_principal_from_request(request)
+        await _api_require_group_admin(application, principal, chat_id, live=True)
+        async with BOT_DATA_LOCK:
+            workflow = begin_workflow(
+                application.bot_data,
+                kind="group_sync",
+                chat_id=chat_id,
+                actor_id=principal.user_id,
+                source="miniapp",
+                subject_id=chat_id,
+                metadata={"requested_by": _api_full_name(principal.user)},
+                at_ms=now_ms(),
+            )
+            workflow_id = str(workflow["id"])
+
+        try:
+            admin_ids = await get_chat_admin_ids_cached(application, chat_id, force=True, allow_api=True)
+            perms = await get_bot_member_cached(application, chat_id, force=True, allow_api=True)
+            async with BOT_DATA_LOCK:
+                advance_workflow(
+                    application.bot_data,
+                    workflow_id,
+                    stage="permissions_refreshed",
+                    at_ms=now_ms(),
+                    detail="live Telegram permissions refreshed",
+                    data={
+                        "admin_count": len(admin_ids),
+                        "bot_status": perms.status,
+                        "can_delete_messages": perms.can_delete_messages,
+                        "can_restrict_members": perms.can_restrict_members,
+                    },
+                )
+                report = reconcile_group_state(application.bot_data, chat_id, at_ms=now_ms())
+                advance_workflow(
+                    application.bot_data,
+                    workflow_id,
+                    stage="state_reconciled",
+                    at_ms=now_ms(),
+                    detail="group settings, incidents, tokens, and workflow counters reconciled",
+                    data=report,
+                )
+                _record_admin_action_log_locked(
+                    application.bot_data,
+                    chat_id=chat_id,
+                    admin_id=principal.user_id,
+                    admin_name=_api_full_name(principal.user),
+                    action="api synchronize group workflow",
+                    result=f"admins={len(admin_ids)} removed_incidents={report.get('incidents_removed', 0)}",
+                )
+                advance_workflow(
+                    application.bot_data,
+                    workflow_id,
+                    stage="persisted",
+                    at_ms=now_ms(),
+                    detail="synchronized state queued for durable storage",
+                )
+                completed = complete_workflow(
+                    application.bot_data,
+                    workflow_id,
+                    at_ms=now_ms(),
+                    outcome="group_synchronized",
+                    detail="Telegram and dashboard state are synchronized",
+                    data=report,
+                )
+                await persist_context_memory(application, reason="api_group_sync", force=True, caller_holds_lock=True)
+                group = _api_group_snapshot_locked(application.bot_data, principal.user_id, chat_id)
+            return {
+                "ok": True,
+                "report": report,
+                "workflow": workflow_public_view(completed or {}, include_events=True),
+                "group": group,
+            }
+        except Exception as exc:
+            async with BOT_DATA_LOCK:
+                failed = fail_workflow(
+                    application.bot_data,
+                    workflow_id,
+                    at_ms=now_ms(),
+                    stage="sync_failed",
+                    error=str(exc),
+                )
+                await persist_context_memory(application, reason="api_group_sync_failed", force=True, caller_holds_lock=True)
+            logger.exception("Group workflow synchronization failed chat_id=%s", chat_id, exc_info=True)
+            _api_raise(503, f"group synchronization failed: {exc.__class__.__name__}")
 
     @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/risk")
     async def api_group_risk(chat_id: int, request: Request, limit: int = 20) -> dict[str, Any]:

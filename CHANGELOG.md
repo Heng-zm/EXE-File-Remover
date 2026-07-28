@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.5.1
+
+### Coordinated workflow
+
+- Added a shared workflow engine for file moderation, incident actions, policy changes, and group synchronization.
+- Added bounded stage/event history with progress, outcome, actor, source, subject, and metadata.
+- Added startup recovery that marks stale running workflows as interrupted.
+- Added workflow IDs to incident records and incident-action records for traceability.
+- Centralized notification routing and smart escalation selection.
+
+### Mini App and administration
+
+- Added a bilingual Workflow Center tab with recent runs, progress bars, status counts, failure visibility, and last synchronization time.
+- Added `GET /api/groups/{chat_id}/workflows`.
+- Added `POST /api/groups/{chat_id}/sync` to refresh live Telegram permissions/admins and reconcile durable state.
+- Added policy, preset, format, and trusted-hash changes to the same workflow activity stream.
+
+### Reliability
+
+- Upgraded persistence schema from v6 to v7.
+- Added workflow-state reconciliation, expired-incident pruning, orphan-token cleanup, and bounded workflow retention.
+- Fixed duplicate FastAPI `application.start()` execution.
+- Expanded automated workflow, migration, dashboard, and authenticated API tests.
+
 ## 3.5.0
 
 ### Mini App dashboard

@@ -1,25 +1,21 @@
-# Persistence Schema Migrations
+# Persistence migrations
 
-Current schema: **6**
+## Current schema: 7
 
-| Migration | Purpose |
-|---|---|
-| v0 → v1 | Initialize durable dictionary and list stores. |
-| v1 → v2 | Normalize user IDs to integers and group IDs to strings. |
-| v2 → v3 | Add durable feedback and administrator action logs. |
-| v3 → v4 | Add dashboard, administrator, member, and cache stores. |
-| v4 → v5 | Add monotonic snapshot revisions for stale-write protection. |
-| v5 → v6 | Add normalized scanner presets and group-specific policy fields. |
+The application migrates snapshots sequentially and rejects snapshots from a future unsupported schema.
 
-The v5 → v6 migration processes every stored group settings object and adds safe defaults for:
+### v6 → v7
 
-- scanner preset
-- allow-list-only mode
-- maximum file size
-- archive handling
-- unscannable-file handling
-- notification routing
-- incident retention
-- policy notes and update metadata
+- Adds `workflow_history` as a persisted list.
+- Removes malformed workflow rows during migration.
+- Bounds imported workflow history to the newest 500 rows.
+- Preserves all existing group policies, incidents, tokens, users, hashes, feedback, caches, and admin logs.
 
-Migrations operate on a deep copy. A snapshot from a future schema is rejected instead of being interpreted with guessed rules. Redis, Supabase, and opt-in local PTB state receive the current `_meta` envelope after a successful save.
+At startup, stale `running` workflows older than the recovery window are changed to `interrupted` with outcome `process_restarted`.
+
+## Safety
+
+- Snapshot revision and timestamp ordering remains unchanged.
+- Unsupported future schemas raise `SchemaMigrationError`.
+- Migration operates on a deep copy before state replacement.
+- Workflow metadata is JSON-safe and bounded.

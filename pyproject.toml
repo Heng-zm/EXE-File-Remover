@@ -1,7 +1,7 @@
 [project]
 name = "exe-remover-security-bot"
-version = "3.5.0"
-description = "Telegram executable-file moderation bot with a bilingual Mini App dashboard"
+version = "3.5.1"
+description = "Telegram executable-file moderation bot with coordinated workflows and a bilingual Mini App dashboard"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

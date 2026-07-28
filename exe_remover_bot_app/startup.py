@@ -53,6 +53,22 @@ def _bool(config: Mapping[str, Any], key: str, default: bool = False) -> bool:
     return str(value).strip().casefold() in {"1", "true", "yes", "on"}
 
 
+def _looks_like_placeholder(value: str) -> bool:
+    compact = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().casefold()).strip("_")
+    markers = (
+        "replace",
+        "placeholder",
+        "change_me",
+        "changeme",
+        "your_token",
+        "your_secret",
+        "example",
+        "dummy",
+        "sample",
+    )
+    return not compact or any(marker in compact for marker in markers)
+
+
 def validate_startup_config(
     config: Mapping[str, Any],
     *,
@@ -62,7 +78,7 @@ def validate_startup_config(
     dependencies = {str(item).casefold() for item in available_dependencies}
 
     token = _text(config, "BOT_TOKEN")
-    if not re.fullmatch(r"\d{5,15}:[A-Za-z0-9_-]{20,}", token) or token == "BOT_TOKEN":
+    if not re.fullmatch(r"\d{5,15}:[A-Za-z0-9_-]{20,}", token) or _looks_like_placeholder(token):
         issues.append(ValidationIssue("error", "bot_token", "BOT_TOKEN is missing, malformed, or a placeholder."))
 
     mode = _text(config, "BOT_MODE").upper() or "AUTO"
@@ -83,8 +99,19 @@ def validate_startup_config(
 
         header_secret = _text(config, "WEBHOOK_SECRET_TOKEN")
         path_secret = _text(config, "WEBHOOK_PATH_SECRET")
-        if len(header_secret) < 24 or len(path_secret) < 24:
-            issues.append(ValidationIssue("error", "webhook_secrets", "Webhook header and path secrets must each contain at least 24 characters."))
+        if (
+            len(header_secret) < 24
+            or len(path_secret) < 24
+            or _looks_like_placeholder(header_secret)
+            or _looks_like_placeholder(path_secret)
+        ):
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    "webhook_secrets",
+                    "Webhook header and path secrets must be real random values with at least 24 characters.",
+                )
+            )
         if header_secret and header_secret == path_secret:
             issues.append(ValidationIssue("error", "webhook_secret_reuse", "Webhook header and path secrets must be different."))
 

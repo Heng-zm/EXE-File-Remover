@@ -4,9 +4,10 @@ import copy
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .config import WORKFLOW_HISTORY_MAX_ITEMS
 from .policies import detect_scanner_preset, normalize_policy_settings
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 LOCAL_STATE_META_KEY = "_persistence_meta"
 
 PERSISTED_BOT_DATA_KEYS = (
@@ -20,6 +21,7 @@ PERSISTED_BOT_DATA_KEYS = (
     "whitelisted_hashes",
     "user_feedback",
     "admin_action_logs",
+    "workflow_history",
     "chat_meta_cache",
     "admin_ids_cache",
     "bot_member_cache",
@@ -29,6 +31,7 @@ PERSISTED_BOT_DATA_KEYS = (
 PERSISTED_BOT_DATA_TYPES: dict[str, type] = {
     "user_feedback": list,
     "admin_action_logs": list,
+    "workflow_history": list,
 }
 
 
@@ -157,6 +160,18 @@ def _migration_5_to_6(payload: dict[str, Any]) -> None:
         settings["scanner_preset"] = detect_scanner_preset(settings)
 
 
+def _migration_6_to_7(payload: dict[str, Any]) -> None:
+    if not isinstance(payload.get("workflow_history"), list):
+        payload["workflow_history"] = []
+    # Keep workflow history bounded and serializable. Older development builds
+    # may have stored malformed rows while the workflow feature was prototyped.
+    cleaned: list[dict[str, Any]] = []
+    for item in payload["workflow_history"][-WORKFLOW_HISTORY_MAX_ITEMS:]:
+        if isinstance(item, dict) and item.get("id"):
+            cleaned.append(item)
+    payload["workflow_history"] = cleaned
+
+
 _MIGRATIONS: dict[int, tuple[str, Callable[[dict[str, Any]], None]]] = {
     0: ("initialize durable stores", _migration_0_to_1),
     1: ("normalize user and group identifiers", _migration_1_to_2),
@@ -164,6 +179,7 @@ _MIGRATIONS: dict[int, tuple[str, Callable[[dict[str, Any]], None]]] = {
     3: ("add persisted dashboard caches", _migration_3_to_4),
     4: ("add monotonic snapshot revisions", _migration_4_to_5),
     5: ("add group scanner presets and policy controls", _migration_5_to_6),
+    6: ("add coordinated workflow history", _migration_6_to_7),
 }
 
 

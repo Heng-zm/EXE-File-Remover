@@ -130,6 +130,19 @@ export const api = {
   risk(chatId, limit = 20) {
     return apiFetch(apiPath(`/groups/${chatId}/risk?limit=${limit}`));
   },
+  workflows(chatId, params = {}) {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") query.set(key, String(value));
+    });
+    return apiFetch(apiPath(`/groups/${chatId}/workflows?${query.toString()}`));
+  },
+  syncGroup(chatId) {
+    return apiFetch(apiPath(`/groups/${chatId}/sync`), {
+      method: "POST",
+      body: "{}",
+    });
+  },
   updatePreferences(lang) {
     return apiFetch(apiPath(`/me/preferences`), {
       method: "PATCH",

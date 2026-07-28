@@ -21,6 +21,7 @@ def test_migrates_legacy_payload_to_current_schema():
     assert "-1001" in result.payload["group_state"]
     assert isinstance(result.payload["user_feedback"], list)
     assert isinstance(result.payload["admin_action_logs"], list)
+    assert isinstance(result.payload["workflow_history"], list)
 
 
 def test_future_schema_is_rejected():
