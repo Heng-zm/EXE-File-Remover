@@ -4,7 +4,9 @@ import copy
 from dataclasses import dataclass
 from typing import Any, Callable
 
-CURRENT_SCHEMA_VERSION = 5
+from .policies import detect_scanner_preset, normalize_policy_settings
+
+CURRENT_SCHEMA_VERSION = 6
 LOCAL_STATE_META_KEY = "_persistence_meta"
 
 PERSISTED_BOT_DATA_KEYS = (
@@ -140,12 +142,28 @@ def _migration_4_to_5(payload: dict[str, Any]) -> None:
     meta["revision"] = max(1, _safe_int(meta.get("revision"), 0), saved_at)
 
 
+def _migration_5_to_6(payload: dict[str, Any]) -> None:
+    group_state = payload.get("group_state")
+    if not isinstance(group_state, dict):
+        return
+    for state in group_state.values():
+        if not isinstance(state, dict):
+            continue
+        settings = state.get("settings")
+        if not isinstance(settings, dict):
+            settings = {}
+            state["settings"] = settings
+        normalize_policy_settings(settings)
+        settings["scanner_preset"] = detect_scanner_preset(settings)
+
+
 _MIGRATIONS: dict[int, tuple[str, Callable[[dict[str, Any]], None]]] = {
     0: ("initialize durable stores", _migration_0_to_1),
     1: ("normalize user and group identifiers", _migration_1_to_2),
     2: ("add feedback and admin-log stores", _migration_2_to_3),
     3: ("add persisted dashboard caches", _migration_3_to_4),
     4: ("add monotonic snapshot revisions", _migration_4_to_5),
+    5: ("add group scanner presets and policy controls", _migration_5_to_6),
 }
 
 

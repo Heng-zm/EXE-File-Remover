@@ -1,8 +1,18 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-# v3.4 compatibility bridge: the API layer is physically isolated while it
+try:
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+except ImportError:  # FastAPI remains optional for polling-only deployments.
+    FileResponse = None  # type: ignore[assignment]
+    StaticFiles = None  # type: ignore[assignment]
+
+from .incidents import incident_action, incident_severity, incident_status, paginate_incidents
+
+# v3.5 compatibility bridge: the API layer is physically isolated while it
 # uses the mature Telegram runtime services through one explicit module handle.
 # Mutable scalar status values are referenced as runtime.<name> below.
 from . import bot as runtime
@@ -348,7 +358,27 @@ def _api_public_settings_locked(bot_data: dict[str, Any], chat_id: int) -> dict[
         "auto_mute_threshold": _api_int(settings.get("auto_mute_threshold"), 2, min_value=1, max_value=100),
         "auto_ban_threshold": _api_int(settings.get("auto_ban_threshold"), 3, min_value=1, max_value=100),
         "auto_mute_minutes": _api_int(settings.get("auto_mute_minutes"), 60, min_value=1, max_value=10080),
+        "scanner_preset": str(settings.get("scanner_preset") or "custom"),
+        "detected_preset": detect_scanner_preset(settings),
+        "allowed_only": bool(settings.get("allowed_only", False)),
+        "max_file_size_bytes": _api_int(settings.get("max_file_size_bytes"), TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES, min_value=65536, max_value=2_147_483_648),
+        "archive_policy": str(settings.get("archive_policy") or "scan"),
+        "unscannable_policy": str(settings.get("unscannable_policy") or "block"),
+        "notification_policy": str(settings.get("notification_policy") or "group_and_admins"),
+        "incident_retention_days": _api_int(settings.get("incident_retention_days"), 30, min_value=1, max_value=3650),
+        "policy_notes": str(settings.get("policy_notes") or ""),
+        "policy_updated_at_ms": _safe_int(settings.get("policy_updated_at_ms"), 0),
+        "policy_updated_at": _api_ms_to_iso(settings.get("policy_updated_at_ms")),
+        "policy_updated_by": _safe_int(settings.get("policy_updated_by"), 0) or None,
     }
+
+
+def _api_mark_policy_updated(settings: dict[str, Any], user_id: int, *, detect_preset: bool = True) -> None:
+    normalize_policy_settings(settings)
+    if detect_preset:
+        settings["scanner_preset"] = detect_scanner_preset(settings)
+    settings["policy_updated_at_ms"] = now_ms()
+    settings["policy_updated_by"] = int(user_id)
 
 
 def _api_admin_ready_counts_locked(bot_data: dict[str, Any], chat_id: int) -> tuple[int, int]:
@@ -540,8 +570,12 @@ def _api_incident_locked(bot_data: dict[str, Any], ikey: str, incident: dict[str
         "sender_name": str(incident.get("sender_name") or "Unknown"),
         "file_name": str(incident.get("file_name") or "Unknown"),
         "reason": str(incident.get("scan_reason") or incident.get("reason") or "blocked file"),
+        "reason_code": str(incident.get("reason") or ""),
+        "severity": incident_severity(incident),
+        "status": incident_status(incident),
         "done": bool(incident.get("done", False)),
         "action": str(incident.get("action") or ""),
+        "effective_action": incident_action(incident),
         "auto_action": str(incident.get("auto_action") or ""),
         "handled_by": _safe_int(incident.get("handled_by"), 0) or None,
         "handled_by_name": str(incident.get("handled_by_name") or ""),
@@ -552,20 +586,48 @@ def _api_incident_locked(bot_data: dict[str, Any], ikey: str, incident: dict[str
     }
 
 
-def _api_incidents_for_chat_locked(bot_data: dict[str, Any], chat_id: int, *, status: str, limit: int) -> list[dict[str, Any]]:
+def _api_incidents_for_chat_locked(
+    bot_data: dict[str, Any],
+    chat_id: int,
+    *,
+    status: str = "all",
+    severity: str = "all",
+    action: str = "all",
+    query: str = "",
+    sender_id: int | None = None,
+    date_from_ms: int = 0,
+    date_to_ms: int = 0,
+    page: int = 1,
+    page_size: int = 25,
+    sort: str = "newest",
+) -> dict[str, Any]:
     incidents = bot_data.get("incidents", {}) if isinstance(bot_data.get("incidents", {}), dict) else {}
-    rows: list[dict[str, Any]] = []
-    for ikey, incident in incidents.items():
-        if not isinstance(incident, dict) or str(incident.get("chat_id")) != str(int(chat_id)):
-            continue
-        done = bool(incident.get("done", False))
-        if status == "open" and done:
-            continue
-        if status == "handled" and not done:
-            continue
-        rows.append(_api_incident_locked(bot_data, str(ikey), incident))
-    rows.sort(key=lambda item: int(item.get("created_at_ms") or 0), reverse=True)
-    return rows[: max(1, min(int(limit), 200))]
+    result = paginate_incidents(
+        incidents,
+        chat_id,
+        status=status,
+        severity=severity,
+        action=action,
+        query=query,
+        sender_id=sender_id,
+        date_from_ms=date_from_ms,
+        date_to_ms=date_to_ms,
+        page=page,
+        page_size=page_size,
+        sort=sort,
+    )
+    return {
+        "incidents": [_api_incident_locked(bot_data, key, incident) for key, incident in result.items],
+        "total": result.total,
+        "pagination": {
+            "page": result.page,
+            "page_size": result.page_size,
+            "pages": result.pages,
+            "has_next": result.has_next,
+            "has_previous": result.has_previous,
+        },
+        "counts": dict(result.counts),
+    }
 
 
 def _api_risk_list_locked(bot_data: dict[str, Any], chat_id: int, *, limit: int = 20) -> list[dict[str, Any]]:
@@ -649,12 +711,15 @@ def _api_route_catalog() -> dict[str, Any]:
             "bootstrap": f"{prefix}/bootstrap",
             "dashboard": f"{prefix}/dashboard",
             "me": f"{prefix}/me",
+            "preferences": f"{prefix}/me/preferences",
             "my_groups": f"{prefix}/me/groups",
             "groups_alias": f"{prefix}/groups",
         },
         "groups": {
             "detail": f"{prefix}/groups/{{chat_id}}",
             "settings": f"{prefix}/groups/{{chat_id}}/settings",
+            "policies": f"{prefix}/groups/{{chat_id}}/policies",
+            "apply_preset": f"{prefix}/groups/{{chat_id}}/presets/{{preset_id}}",
             "formats": f"{prefix}/groups/{{chat_id}}/formats/{{allowed|blocked}}",
             "trusted_hashes": f"{prefix}/groups/{{chat_id}}/trusted-hashes",
             "incidents": f"{prefix}/groups/{{chat_id}}/incidents",
@@ -664,6 +729,7 @@ def _api_route_catalog() -> dict[str, Any]:
             "health": f"{prefix}/groups/{{chat_id}}/health",
         },
         "tools": {
+            "scanner_presets": f"{prefix}/scanner/presets",
             "scan_name": f"{prefix}/scan/name",
             "feedback": f"{prefix}/feedback",
             "incident_action": f"{prefix}/incidents/{{token_or_key}}/action",
@@ -705,6 +771,9 @@ def _api_public_bootstrap_payload(*, reason: str = "missing_init_data") -> dict[
             "groups": False,
             "group_settings": False,
             "incidents": False,
+            "incident_filters": False,
+            "scanner_presets": True,
+            "group_policies": False,
             "trusted_hashes": False,
             "developer_dashboard": False,
         },
@@ -726,6 +795,7 @@ def _api_frontend_config_payload() -> dict[str, Any]:
         "name": PROFESSIONAL_BRAND_NAME,
         "version": PROFESSIONAL_UI_VERSION,
         "api_prefix": MINI_APP_API_PREFIX,
+        "dashboard_url": "/app",
         "bot_id": runtime.BOT_ID,
         "bot_username": runtime.BOT_USERNAME,
         "telegram_auth_required": True,
@@ -756,6 +826,9 @@ def _api_session_payload_locked(bot_data: dict[str, Any], principal: MiniAppPrin
             "groups": True,
             "group_settings": True,
             "incidents": True,
+            "incident_filters": True,
+            "scanner_presets": True,
+            "group_policies": True,
             "trusted_hashes": trusted_hash_whitelist_enabled(bot_data),
             "developer_dashboard": principal.user_id in BOT_OWNER_IDS,
         },
@@ -929,6 +1002,32 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         max_age=86400,
     )
 
+    static_dir = Path(__file__).with_name("static")
+    dashboard_index = static_dir / "index.html"
+    if StaticFiles is not None and static_dir.is_dir():
+        api.mount("/app/assets", StaticFiles(directory=str(static_dir)), name="miniapp-assets")
+
+    @api.get("/app/config.js")
+    async def miniapp_dashboard_config() -> Response:
+        payload = json.dumps({"apiPrefix": MINI_APP_API_PREFIX}, separators=(",", ":"))
+        return Response(
+            content=f"window.__EXE_REMOVER_CONFIG__={payload};",
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @api.head("/app")
+    @api.head("/app/")
+    async def miniapp_dashboard_head() -> Response:
+        return Response(status_code=200, headers={"X-Service-Status": "ok"})
+
+    @api.get("/app")
+    @api.get("/app/")
+    async def miniapp_dashboard() -> Any:
+        if FileResponse is None or not dashboard_index.is_file():
+            _api_raise(404, "Mini App dashboard assets are not installed")
+        return FileResponse(str(dashboard_index), media_type="text/html", headers={"Cache-Control": "no-cache"})
+
     @api.middleware("http")
     async def api_server_log_middleware(request: Request, call_next: Any) -> Any:
         """Record every API/webhook connection, error, and slow process event."""
@@ -1017,6 +1116,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             "version": PROFESSIONAL_UI_VERSION,
             "api_prefix": MINI_APP_API_PREFIX,
             "docs": "/docs",
+            "dashboard": "/app",
             "routes": f"{MINI_APP_API_PREFIX}/routes",
             "bootstrap": f"{MINI_APP_API_PREFIX}/bootstrap",
             "server_log": f"{MINI_APP_API_PREFIX}/server/log",
@@ -1049,6 +1149,19 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
     async def api_frontend_config() -> dict[str, Any]:
         # Public: contains only routing/config data. No private user/group data.
         return _api_frontend_config_payload()
+
+    @api.get(f"{MINI_APP_API_PREFIX}/scanner/presets")
+    async def api_scanner_presets(lang: str = "en") -> dict[str, Any]:
+        return {
+            "ok": True,
+            "presets": scanner_presets_catalog(lang),
+            "allowed_values": {
+                "scanner_preset": list(SCANNER_PRESET_IDS),
+                "archive_policy": list(ARCHIVE_POLICIES),
+                "unscannable_policy": list(UNSCANNABLE_POLICIES),
+                "notification_policy": list(NOTIFICATION_POLICIES),
+            },
+        }
 
     @api.options("/{full_path:path}")
     async def api_options_preflight(full_path: str) -> Response:
@@ -1134,6 +1247,24 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             "linked_group_count": len(groups),
         }
 
+    @api.patch(f"{MINI_APP_API_PREFIX}/me/preferences")
+    async def api_update_preferences(request: Request) -> dict[str, Any]:
+        principal = await _api_principal_from_request(request)
+        payload = await _api_request_json(request)
+        lang = str(payload.get("lang") or "").strip().casefold()
+        if lang not in {"en", "km"}:
+            _api_raise(400, "lang must be en or km")
+        async with BOT_DATA_LOCK:
+            state = get_user_state(application.bot_data, principal.user_id)
+            state["lang"] = lang
+            state["last_seen_ms"] = now_ms()
+            known_users = application.bot_data.setdefault("known_users", {})
+            profile = known_users.setdefault(str(principal.user_id), {}) if isinstance(known_users, dict) else {}
+            if isinstance(profile, dict):
+                profile["lang"] = lang
+            await persist_context_memory(application, reason="api_user_preferences", force=True, caller_holds_lock=True)
+        return {"ok": True, "preferences": {"lang": lang}}
+
     @api.get(f"{MINI_APP_API_PREFIX}/me/groups")
     @api.get(f"{MINI_APP_API_PREFIX}/groups")
     async def api_my_groups(request: Request, refresh: bool = False) -> dict[str, Any]:
@@ -1162,6 +1293,106 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             )
         return {"ok": True, "group": await _api_group_snapshot(application, principal.user_id, chat_id)}
 
+    @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/policies")
+    async def api_group_policies(chat_id: int, request: Request, lang: str = "") -> dict[str, Any]:
+        principal = await _api_principal_from_request(request)
+        await _api_require_group_admin(application, principal, chat_id, live=False)
+        async with BOT_DATA_LOCK:
+            user_lang = str(_read_user_state(application.bot_data, principal.user_id).get("lang") or "en")
+            settings = _api_public_settings_locked(application.bot_data, chat_id)
+        return {
+            "ok": True,
+            "policy": settings,
+            "presets": scanner_presets_catalog(lang or user_lang),
+            "allowed_values": {
+                "archive_policy": list(ARCHIVE_POLICIES),
+                "unscannable_policy": list(UNSCANNABLE_POLICIES),
+                "notification_policy": list(NOTIFICATION_POLICIES),
+            },
+        }
+
+    @api.patch(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/policies")
+    async def api_update_group_policies(chat_id: int, request: Request) -> dict[str, Any]:
+        principal = await _api_principal_from_request(request)
+        await _api_require_group_admin(application, principal, chat_id, live=True)
+        payload = await _api_request_json(request)
+        changed: list[str] = []
+        async with BOT_DATA_LOCK:
+            settings = get_group_settings(application.bot_data, chat_id)
+            if "allowed_only" in payload:
+                settings["allowed_only"] = _api_bool(payload.get("allowed_only"), bool(settings.get("allowed_only", False)))
+                changed.append("allowed_only")
+            if "max_file_size_mb" in payload:
+                try:
+                    size_bytes = int(float(payload.get("max_file_size_mb")) * 1024 * 1024)
+                except (TypeError, ValueError):
+                    _api_raise(400, "max_file_size_mb must be a number")
+                settings["max_file_size_bytes"] = max(65_536, min(2_147_483_648, size_bytes))
+                changed.append("max_file_size_bytes")
+            elif "max_file_size_bytes" in payload:
+                settings["max_file_size_bytes"] = _api_int(payload.get("max_file_size_bytes"), TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES, min_value=65_536, max_value=2_147_483_648)
+                changed.append("max_file_size_bytes")
+            for key, allowed, default in (
+                ("archive_policy", ARCHIVE_POLICIES, "scan"),
+                ("unscannable_policy", UNSCANNABLE_POLICIES, "block"),
+                ("notification_policy", NOTIFICATION_POLICIES, "group_and_admins"),
+            ):
+                if key in payload:
+                    value = str(payload.get(key) or default).strip().casefold()
+                    if value not in allowed:
+                        _api_raise(400, f"{key} must be one of: {', '.join(allowed)}")
+                    settings[key] = value
+                    changed.append(key)
+            if "incident_retention_days" in payload:
+                settings["incident_retention_days"] = _api_int(payload.get("incident_retention_days"), 30, min_value=1, max_value=3650)
+                changed.append("incident_retention_days")
+            if "policy_notes" in payload:
+                settings["policy_notes"] = str(payload.get("policy_notes") or "").strip()[:500]
+                changed.append("policy_notes")
+            if "strict_enforcement_on_admins" in payload:
+                settings["strict_enforcement_on_admins"] = _api_bool(payload.get("strict_enforcement_on_admins"), True)
+                changed.append("strict_enforcement_on_admins")
+            if changed:
+                _api_mark_policy_updated(settings, principal.user_id, detect_preset=True)
+                _record_admin_action_log_locked(
+                    application.bot_data,
+                    chat_id=chat_id,
+                    admin_id=principal.user_id,
+                    admin_name=_api_full_name(principal.user),
+                    action="api update group policy",
+                    result=", ".join(changed),
+                )
+                await persist_context_memory(application, reason="api_group_policy_update", force=True, caller_holds_lock=True)
+            group = _api_group_snapshot_locked(application.bot_data, principal.user_id, chat_id)
+        return {"ok": True, "changed": changed, "policy": group["settings"], "group": group}
+
+    @api.post(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/presets/{{preset_id}}")
+    async def api_apply_group_preset(chat_id: int, preset_id: str, request: Request) -> dict[str, Any]:
+        principal = await _api_principal_from_request(request)
+        await _api_require_group_admin(application, principal, chat_id, live=True)
+        normalized = str(preset_id or "").strip().casefold()
+        if normalized not in SCANNER_PRESET_IDS or normalized == "custom":
+            _api_raise(400, "preset_id must be standard, strict, documents, or media")
+        async with BOT_DATA_LOCK:
+            settings = get_group_settings(application.bot_data, chat_id)
+            try:
+                changed = apply_scanner_preset(settings, normalized)
+            except ValueError as exc:
+                _api_raise(400, str(exc))
+            _api_mark_policy_updated(settings, principal.user_id, detect_preset=False)
+            settings["scanner_preset"] = normalized
+            _record_admin_action_log_locked(
+                application.bot_data,
+                chat_id=chat_id,
+                admin_id=principal.user_id,
+                admin_name=_api_full_name(principal.user),
+                action="api apply scanner preset",
+                result=normalized,
+            )
+            await persist_context_memory(application, reason="api_scanner_preset_apply", force=True, caller_holds_lock=True)
+            group = _api_group_snapshot_locked(application.bot_data, principal.user_id, chat_id)
+        return {"ok": True, "preset": normalized, "changed": changed, "group": group}
+
     @api.patch(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/settings")
     async def api_update_group_settings(chat_id: int, request: Request) -> dict[str, Any]:
         principal = await _api_principal_from_request(request)
@@ -1176,6 +1407,9 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             if "silent_mode" in payload:
                 settings["silent_mode"] = _api_bool(payload.get("silent_mode"), bool(settings.get("silent_mode", False)))
                 changed.append("silent_mode")
+            if "strict_enforcement_on_admins" in payload:
+                settings["strict_enforcement_on_admins"] = _api_bool(payload.get("strict_enforcement_on_admins"), bool(settings.get("strict_enforcement_on_admins", True)))
+                changed.append("strict_enforcement_on_admins")
             if "strictness" in payload:
                 strictness = str(payload.get("strictness") or "standard").strip().casefold()
                 if strictness not in {"standard", "high", "strict"}:
@@ -1204,6 +1438,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
                     settings[key] = _api_int(payload.get(key), default, min_value=1, max_value=max_value)
                     changed.append(key)
             if changed:
+                _api_mark_policy_updated(settings, principal.user_id, detect_preset=True)
                 _record_admin_action_log_locked(application.bot_data, chat_id=chat_id, admin_id=principal.user_id, admin_name=_api_full_name(principal.user), action="api update settings", result=", ".join(changed))
                 await persist_context_memory(application, reason="api_group_settings_update", force=True, caller_holds_lock=True)
             group = _api_group_snapshot_locked(application.bot_data, principal.user_id, chat_id)
@@ -1241,6 +1476,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             old = list(settings.get(key, []))
             combined = new_exts if mode == "replace" else old + new_exts
             settings[key] = _api_extension_values(combined, allowed=(kind == "allowed"))
+            _api_mark_policy_updated(settings, principal.user_id, detect_preset=True)
             _record_admin_action_log_locked(application.bot_data, chat_id=chat_id, admin_id=principal.user_id, admin_name=_api_full_name(principal.user), action=f"api {mode} {kind} formats", result=", ".join(settings[key]) or "empty")
             await persist_context_memory(application, reason="api_formats_update", force=True, caller_holds_lock=True)
             return {"ok": True, "kind": kind, "extensions": list(settings.get(key, [])), "group": _api_group_snapshot_locked(application.bot_data, principal.user_id, chat_id)}
@@ -1257,6 +1493,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         async with BOT_DATA_LOCK:
             settings = get_group_settings(application.bot_data, chat_id)
             settings[key] = [item for item in settings.get(key, []) if item != normalized]
+            _api_mark_policy_updated(settings, principal.user_id, detect_preset=True)
             _record_admin_action_log_locked(application.bot_data, chat_id=chat_id, admin_id=principal.user_id, admin_name=_api_full_name(principal.user), action=f"api delete {kind} format", result=normalized)
             await persist_context_memory(application, reason="api_format_delete", force=True, caller_holds_lock=True)
             return {"ok": True, "kind": kind, "extensions": list(settings.get(key, []))}
@@ -1312,15 +1549,52 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         return {"ok": True, "hashes": []}
 
     @api.get(f"{MINI_APP_API_PREFIX}/groups/{{chat_id}}/incidents")
-    async def api_group_incidents(chat_id: int, request: Request, status: str = "all", limit: int = 50) -> dict[str, Any]:
+    async def api_group_incidents(
+        chat_id: int,
+        request: Request,
+        status: str = "all",
+        severity: str = "all",
+        action: str = "all",
+        query: str = "",
+        sender_id: int | None = None,
+        date_from_ms: int = 0,
+        date_to_ms: int = 0,
+        page: int = 1,
+        page_size: int = 25,
+        limit: int | None = None,
+        sort: str = "newest",
+    ) -> dict[str, Any]:
         principal = await _api_principal_from_request(request)
         await _api_require_group_admin(application, principal, chat_id, live=False)
         status = status.strip().casefold()
+        severity = severity.strip().casefold()
+        action = action.strip().casefold()
+        sort = sort.strip().casefold()
         if status not in {"all", "open", "handled"}:
             _api_raise(400, "status must be all, open, or handled")
+        if severity not in {"all", "low", "medium", "high", "critical"}:
+            _api_raise(400, "severity must be all, low, medium, high, or critical")
+        if action not in {"all", "none", "warn", "mute", "ban", "ignore", "risk"}:
+            _api_raise(400, "action must be all, none, warn, mute, ban, ignore, or risk")
+        if sort not in {"newest", "oldest"}:
+            _api_raise(400, "sort must be newest or oldest")
+        effective_page_size = limit if limit is not None else page_size
         async with BOT_DATA_LOCK:
-            rows = _api_incidents_for_chat_locked(application.bot_data, chat_id, status=status, limit=limit)
-        return {"ok": True, "incidents": rows, "total": len(rows)}
+            result = _api_incidents_for_chat_locked(
+                application.bot_data,
+                chat_id,
+                status=status,
+                severity=severity,
+                action=action,
+                query=query,
+                sender_id=sender_id,
+                date_from_ms=date_from_ms,
+                date_to_ms=date_to_ms,
+                page=page,
+                page_size=effective_page_size,
+                sort=sort,
+            )
+        return {"ok": True, **result}
 
     @api.post(f"{MINI_APP_API_PREFIX}/incidents/{{token_or_key}}/action")
     async def api_incident_action(token_or_key: str, request: Request) -> dict[str, Any]:

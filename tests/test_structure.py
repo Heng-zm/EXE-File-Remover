@@ -5,7 +5,7 @@ def test_entrypoint_is_thin_and_modules_exist():
     root = Path(__file__).resolve().parents[1]
     entrypoint = (root / "exe_remover_bot.py").read_text(encoding="utf-8")
     assert len(entrypoint.splitlines()) <= 10
-    for module in ("config.py", "diagnostics.py", "retry.py", "scanner.py", "schema.py", "startup.py", "translations.py", "miniapp_api.py", "bot.py"):
+    for module in ("config.py", "diagnostics.py", "incidents.py", "policies.py", "retry.py", "scanner.py", "schema.py", "startup.py", "translations.py", "miniapp_api.py", "bot.py"):
         assert (root / "exe_remover_bot_app" / module).is_file()
 
 

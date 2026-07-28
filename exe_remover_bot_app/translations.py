@@ -1341,4 +1341,82 @@ for _lang, _items in FIRST_TIME_DASHBOARD_TEXTS.items():
     TEXTS.setdefault(_lang, {}).update(_items)
 
 
-__all__ = ["TEXTS", "FIRST_TIME_DASHBOARD_TEXTS"]
+V35_KHMER_UI_TEXTS: dict[str, str] = {
+    "group_admin_title": (
+        "⚙️ <b>ផ្ទាំងគ្រប់គ្រងក្រុម</b>\n💬 <b>{group}</b> <code>{chat_id}</code>\n\n"
+        "🛡 ការការពារ៖ <code>{protection}</code>\n"
+        "🔥 កម្រិតតឹងរ៉ឹង៖ <code>{strictness}</code>\n"
+        "🔇 សារជូនដំណឹងបណ្ដោះអាសន្ន៖ <code>{silent}</code>\n"
+        "🧩 ប្រភេទឯកសារដែលទប់ស្កាត់៖ <code>{custom_blocked}</code>\n"
+        "✅ ប្រភេទឯកសារដែលអនុញ្ញាត៖ <code>{allowed}</code>\n"
+        "🔐 លេខសម្គាល់ឯកសារដែលទុកចិត្ត៖ <code>{trusted_hashes}</code>\n"
+        "⚙️ វិធានការស្វ័យប្រវត្តិ៖ <code>{auto_action}</code>"
+    ),
+    "btn_incident_logs": "🚨 ប្រវត្តិករណីល្មើស",
+    "btn_blocked_formats": "🧩 ប្រភេទឯកសារដែលទប់ស្កាត់",
+    "btn_allowed_formats": "✅ ប្រភេទឯកសារដែលអនុញ្ញាត",
+    "btn_strictness_level": "🔥 កម្រិតតឹងរ៉ឹង",
+    "btn_refresh_incidents": "🔄 ធ្វើបច្ចុប្បន្នភាពករណី",
+    "btn_incidents_short": "🚨 ករណីល្មើស",
+    "btn_blocked_formats_short": "🧩 ឯកសារទប់ស្កាត់",
+    "btn_allowed_formats_short": "✅ ឯកសារអនុញ្ញាត",
+    "language_title": "🌐 <b>ជ្រើសរើសភាសាផ្ទាំងគ្រប់គ្រង</b>\n\nសូមជ្រើសភាសាសម្រាប់ផ្ទាំងគ្រប់គ្រងឯកជន និងសារជូនដំណឹង។",
+    "bot_admin_required_title": (
+        "🔒 <b>ការកំណត់ Bot ត្រូវបានចាក់សោ</b>\n"
+        "💬 <b>{group}</b> <code>{chat_id}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "ស្ថានភាព Bot៖ <code>{status}</code>\n"
+        "សិទ្ធិលុបសារ៖ {can_delete}\n"
+        "សិទ្ធិដាក់កម្រិត ឬហាមឃាត់សមាជិក៖ {can_restrict}\n\n"
+        "ដើម្បីបើកការកំណត់ អ្នកគ្រប់គ្រងក្រុមត្រូវដាក់ Bot ជា <b>អ្នកគ្រប់គ្រង</b> "
+        "ហើយបើកសិទ្ធិ <b>លុបសារ</b>។\n\n"
+        "ចុច <b>ដាក់ Bot ជាអ្នកគ្រប់គ្រង</b> រួចត្រឡប់មកចុច <b>ពិនិត្យម្តងទៀត</b>។"
+    ),
+    "bot_admin_required_group": (
+        "🔒 <b>ការកំណត់ត្រូវបានចាក់សោ។</b>\n\n"
+        "សូមដាក់ខ្ញុំជា <b>អ្នកគ្រប់គ្រង</b> ក្នុងក្រុម ហើយបើកសិទ្ធិ <b>លុបសារ</b>។ "
+        "ប៊ូតុងការកំណត់នឹងបង្ហាញក្រោយពេលសិទ្ធិត្រូវបានផ្ទៀងផ្ទាត់។"
+    ),
+    "btn_add_bot_admin": "➕ ដាក់ Bot ជាអ្នកគ្រប់គ្រង",
+    "first_time_home_title": (
+        "🛡️ <b>{brand}</b> <code>{version}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "សូមស្វាគមន៍! មិនទាន់មានក្រុមដែលបានភ្ជាប់ការពារទេ។\n\n"
+        "ដើម្បីចាប់ផ្ដើម សូមបន្ថែម Bot ទៅក្នុងក្រុម Telegram ដាក់ជា <b>អ្នកគ្រប់គ្រង</b> "
+        "ហើយបើកសិទ្ធិ <b>លុបសារ</b>។\n\n"
+        "ប៊ូតុងរៀបចំដំបូងនឹងបង្ហាញរហូតដល់ក្រុមទីមួយត្រូវបានភ្ជាប់។"
+    ),
+    "about_title": (
+        "ℹ️ <b>អំពី {brand}</b> <code>{version}</code>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Bot នេះការពារក្រុម Telegram ពីឯកសារដំណើរការដែលមានគ្រោះថ្នាក់ ដូចជា <code>.exe</code> "
+        "ឯកសារបន្លំឈ្មោះ ឯកសារបង្រួមមានហានិភ័យ និងអ្នកល្មើសដដែលៗ។\n\n"
+        "មុខងារសំខាន់ៗ៖\n"
+        "✅ លុបឯកសារគ្រោះថ្នាក់ដោយស្វ័យប្រវត្តិ\n"
+        "✅ ជូនដំណឹងអ្នកគ្រប់គ្រងភ្លាមៗ\n"
+        "✅ ប៊ូតុងហាមឃាត់ ព្រមាន ឬរំលង\n"
+        "✅ គោលការណ៍ស្កេនជាក់លាក់សម្រាប់ក្រុមនីមួយៗ\n"
+        "✅ លេខសម្គាល់ SHA-256 សម្រាប់ឯកសារដែលទុកចិត្ត"
+    ),
+    "risk_profile_title": (
+        "📋 <b>ប្រវត្តិហានិភ័យរបស់អ្នកប្រើ</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "👤 អ្នកប្រើ៖ {user}\n"
+        "🆔 លេខសម្គាល់៖ <code>{target_user_id}</code>\n"
+        "💬 ក្រុម៖ <b>{group}</b>\n"
+        "📊 កម្រិតហានិភ័យ៖ <code>{risk}</code>\n"
+        "🚨 ករណីសរុប៖ <code>{incidents}</code>\n"
+        "⚠️ ការព្រមាន៖ <code>{warns}</code>\n"
+        "🔇 ការផ្អាកសារ៖ <code>{mutes}</code>\n"
+        "🔨 ការហាមឃាត់៖ <code>{bans}</code>\n"
+        "📄 ឯកសារចុងក្រោយ៖ <code>{last_file}</code>\n"
+        "🕒 ករណីចុងក្រោយ៖ <code>{last_seen}</code>\n\n"
+        "វិធានការណែនាំ៖ <b>{recommended}</b>"
+    ),
+    "risk_recommend_mute": "ផ្អាកការផ្ញើសារ ប្រសិនបើនៅតែបន្ត",
+    "risk_recommend_ban": "ហាមឃាត់អ្នកដែលល្មើសដដែលៗ",
+}
+TEXTS.setdefault("km", {}).update(V35_KHMER_UI_TEXTS)
+
+
+__all__ = ["TEXTS", "FIRST_TIME_DASHBOARD_TEXTS", "V35_KHMER_UI_TEXTS"]

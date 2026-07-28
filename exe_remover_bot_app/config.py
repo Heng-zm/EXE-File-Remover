@@ -120,7 +120,7 @@ SUPABASE_AUTOSAVE_MIN_INTERVAL_SECONDS = _env_float(
 # network latency, while force=True still skips backend save intervals.
 MEMORY_SAVE_DEBOUNCE_SECONDS = _env_float("MEMORY_SAVE_DEBOUNCE_SECONDS", 1.25, min_value=0.0)
 
-# v3.4 persistence retry policy. Retries use exponential backoff with jitter.
+# v3.5 persistence retry policy. Retries use exponential backoff with jitter.
 PERSISTENCE_RETRY_ATTEMPTS = _env_int("PERSISTENCE_RETRY_ATTEMPTS", 4, min_value=1, max_value=10)
 PERSISTENCE_RETRY_BASE_DELAY_SECONDS = _env_float("PERSISTENCE_RETRY_BASE_DELAY_SECONDS", 0.35, min_value=0.0)
 PERSISTENCE_RETRY_MAX_DELAY_SECONDS = _env_float("PERSISTENCE_RETRY_MAX_DELAY_SECONDS", 5.0, min_value=0.1)
@@ -306,7 +306,7 @@ DEFAULT_MIDDLEWARE_CONFIG: dict[str, int | float | bool] = {
 # Environment variables can still override the release label/brand without
 # requiring code edits.
 PROFESSIONAL_UI_ENABLED = _env_bool("PROFESSIONAL_UI_ENABLED", True)
-PROFESSIONAL_UI_VERSION = _env_str("PROFESSIONAL_UI_VERSION", "v3.4") or "v3.4"
+PROFESSIONAL_UI_VERSION = _env_str("PROFESSIONAL_UI_VERSION", "v3.5") or "v3.5"
 PROFESSIONAL_BRAND_NAME = _env_str("PROFESSIONAL_BRAND_NAME", "EXE Remover Security Bot") or "EXE Remover Security Bot"
 
 # Lightweight bot middleware controls. PTB has no Express-style middleware,

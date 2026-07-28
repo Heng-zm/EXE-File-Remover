@@ -78,6 +78,18 @@ from .diagnostics import (
     server_log_event,
     server_log_snapshot,
 )
+from .policies import (
+    ARCHIVE_POLICIES,
+    NOTIFICATION_POLICIES,
+    POLICY_DEFAULTS,
+    SCANNER_PRESET_IDS,
+    UNSCANNABLE_POLICIES,
+    apply_scanner_preset,
+    detect_scanner_preset,
+    is_archive_name,
+    normalize_policy_settings,
+    scanner_presets_catalog,
+)
 from .retry import RetryPolicy, retry_async
 from .scanner import (
     FileScanResult,
@@ -228,6 +240,7 @@ DEFAULT_GROUP_SETTINGS: dict[str, Any] = {
     "auto_mute_threshold": 2,
     "auto_ban_threshold": 3,
     "auto_mute_minutes": 60,
+    **POLICY_DEFAULTS,
 }
 
 
@@ -2836,6 +2849,7 @@ def get_group_settings(bot_data: dict[str, Any], chat_id: int) -> dict[str, Any]
     settings["protection_enabled"] = bool(settings.get("protection_enabled", True))
     settings["silent_mode"] = bool(settings.get("silent_mode", False))
     settings["strict_enforcement_on_admins"] = bool(settings.get("strict_enforcement_on_admins", STRICT_ENFORCEMENT_ON_ADMINS_DEFAULT))
+    normalize_policy_settings(settings)
     return settings
 
 def _on_off(bot_data: dict[str, Any], user_id: int | None, enabled: bool, *, key_on: str = "protection_on", key_off: str = "protection_off") -> str:
@@ -5045,7 +5059,19 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 
-def apply_group_scan_policy(bot_data: dict[str, Any], chat_id: int, scan: FileScanResult) -> FileScanResult:
+def apply_group_scan_policy(
+    bot_data: dict[str, Any],
+    chat_id: int,
+    scan: FileScanResult,
+    *,
+    file_size: int = 0,
+) -> FileScanResult:
+    """Apply group-specific v3.5 policy after the shared scanner result.
+
+    Core executable detections always win. Presets and custom policies can make
+    a group stricter, but they cannot whitelist a dangerous executable except
+    through the existing exact SHA256 trusted-file workflow.
+    """
     settings = get_group_settings(bot_data, chat_id)
     if not settings.get("protection_enabled", True):
         return replace(scan, blocked=False, reason_code="protection_disabled", reason_display="group protection is disabled")
@@ -5059,13 +5085,35 @@ def apply_group_scan_policy(bot_data: dict[str, Any], chat_id: int, scan: FileSc
     allowed_exts = set(settings.get("allowed_extensions", []))
     allowed_match = last_ext if last_ext in allowed_exts else ""
 
+    max_file_size = int(settings.get("max_file_size_bytes") or 0)
+    if file_size > 0 and max_file_size > 0 and file_size > max_file_size:
+        return replace(
+            scan,
+            blocked=True,
+            reason_code="group_max_file_size",
+            reason_display=f"file exceeds group limit of {max_file_size} bytes",
+            details=tuple([*scan.details, f"size:{file_size}", f"group_limit:{max_file_size}"]),
+        )
+
+    archive_policy = str(settings.get("archive_policy") or "scan")
+    archive_name = is_archive_name(scan.file_name, ARCHIVE_EXTENSIONS)
+    if archive_name and archive_policy == "block":
+        return replace(
+            scan,
+            blocked=True,
+            reason_code="group_archive_blocked",
+            reason_display="archives are blocked by this group policy",
+            matched_extension=last_ext or matched_ext,
+        )
+
+    if scan.reason_code in {"unscannable_generic_file", "scanner_error"} and settings.get("unscannable_policy") == "allow":
+        scan = replace(scan, blocked=False, reason_code="group_unscannable_allowed", reason_display="unscannable file allowed by group policy")
+
     custom_blocked = set(settings.get("custom_blocked_extensions", []))
     custom_match = last_ext if last_ext in custom_blocked else next((ext for ext in suffixes if ext in custom_blocked), "")
     if custom_match:
-        # Allowed formats are meant to bypass only custom delete formats.
-        # They must not override the core scanner, e.g. .exe, PE magic bytes,
-        # or invoice.exe.zip. Exact executable exceptions belong in the
-        # trusted SHA256 whitelist above.
+        # Allowed formats bypass custom delete formats only. They never override
+        # the core executable scanner or a dangerous archive member.
         if allowed_match == custom_match and not scan.blocked:
             return replace(
                 scan,
@@ -5082,10 +5130,20 @@ def apply_group_scan_policy(bot_data: dict[str, Any], chat_id: int, scan: FileSc
             matched_extension=custom_match,
         )
 
+    if settings.get("allowed_only", False) and not allowed_match and not scan.blocked:
+        return replace(
+            scan,
+            blocked=True,
+            reason_code="group_allowlist_only",
+            reason_display="this group allows only approved file formats",
+            matched_extension=last_ext or matched_ext,
+        )
+
     strictness = str(settings.get("strictness", "standard"))
     if strictness == "standard" and scan.blocked:
-        # Standard mode is intentionally calm: block .exe, renamed PE files, and archives containing .exe only.
-        if matched_ext in BLOCKED_EXTENSIONS or scan.reason_code == "pe_magic_header":
+        # Standard mode remains calm: block .exe, renamed PE files, and archives
+        # containing .exe, while allowing lower-risk script/archive detections.
+        if matched_ext in BLOCKED_EXTENSIONS or scan.reason_code in {"pe_magic_header", "archive_dangerous_member"}:
             return scan
         return replace(scan, blocked=False, reason_code="standard_mode_allowed", reason_display="allowed by Standard strictness")
 
@@ -5348,7 +5406,8 @@ async def sync_handled_alert_messages(
 
 
 async def clean_old_incidents(context: ContextTypes.DEFAULT_TYPE) -> None:
-    cutoff = now_ms() - INCIDENT_TTL_SECONDS * 1000
+    """Remove incidents using each group's v3.5 retention policy."""
+    current_ms = now_ms()
     stale_keys: list[str] = []
 
     async with BOT_DATA_LOCK:
@@ -5356,8 +5415,14 @@ async def clean_old_incidents(context: ContextTypes.DEFAULT_TYPE) -> None:
         if not isinstance(incidents, dict) or not incidents:
             return
         for ikey, incident in list(incidents.items()):
+            if not isinstance(incident, dict):
+                stale_keys.append(str(ikey))
+                continue
+            chat_id = int(incident.get("chat_id") or 0)
+            retention_days = int(get_group_settings(context.bot_data, chat_id).get("incident_retention_days", 30)) if chat_id else 30
+            cutoff = current_ms - max(1, retention_days) * 86_400_000
             ts = incident_timestamp_ms(str(ikey))
-            created_at = ts if ts is not None else int(incident.get("created_at_ms", 0) or 0) if isinstance(incident, dict) else 0
+            created_at = ts if ts is not None else int(incident.get("created_at_ms", 0) or 0)
             if created_at and created_at < cutoff:
                 stale_keys.append(str(ikey))
         for ikey in stale_keys:
@@ -5375,7 +5440,7 @@ async def clean_old_incidents(context: ContextTypes.DEFAULT_TYPE) -> None:
         async with INCIDENT_LOCKS_LOCK:
             for ikey in stale_keys:
                 INCIDENT_LOCKS.pop(ikey, None)
-        logger.info("Cleaned %d stale incident(s).", len(stale_keys))
+        logger.info("Cleaned %d stale incident(s) using group retention policies.", len(stale_keys))
 
 
 async def cleanup_runtime_caches(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -6151,20 +6216,24 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     file_name_meta = normalize_filename(getattr(document, "file_name", None))
     file_size = int(getattr(document, "file_size", 0) or 0)
 
+    pre_scan = scan_filename_only(file_name_meta, getattr(document, "mime_type", "") or "")
     async with BOT_DATA_LOCK:
         settings_snapshot = dict(get_group_settings(context.bot_data, chat.id))
+        pre_policy_scan = apply_group_scan_policy(
+            context.bot_data,
+            chat.id,
+            pre_scan,
+            file_size=file_size,
+        )
 
     if not settings_snapshot.get("protection_enabled", True):
         return
 
-    # v3 security fix: do not let admins/owners bypass blocked executable files.
-    # Safe default is to scan everyone.  If ADMIN_BYPASS_ENABLED=true is set
-    # intentionally, only allow bypass for admins/owners when the cheap
-    # filename/MIME pre-scan is clean. This prevents logs like:
-    # "Document scan bypassed ... file_name='1.exe' strict_admins=False".
+    # v3.5: admin bypass is allowed only when both the core scanner and the
+    # current group policy consider the file clean. Preset rules such as
+    # Documents Only, archive blocking, and max-size limits cannot be bypassed.
     strict_admins = bool(settings_snapshot.get("strict_enforcement_on_admins", STRICT_ENFORCEMENT_ON_ADMINS_DEFAULT))
-    pre_scan = scan_filename_only(file_name_meta, getattr(document, "mime_type", "") or "")
-    allow_admin_bypass = bool(ADMIN_BYPASS_ENABLED and sender_id and not strict_admins and not pre_scan.blocked)
+    allow_admin_bypass = bool(ADMIN_BYPASS_ENABLED and sender_id and not strict_admins and not pre_policy_scan.blocked)
     if allow_admin_bypass:
         try:
             admin_ids = await get_chat_admin_ids_cached(context, chat.id, allow_api=True)
@@ -6200,9 +6269,20 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
     try:
-        scan = await scan_document(context, document, chat_id=chat.id)
-        async with BOT_DATA_LOCK:
-            scan = apply_group_scan_policy(context.bot_data, chat.id, scan)
+        can_hash_for_trusted_policy = bool(
+            trusted_hash_whitelist_enabled(context.bot_data)
+            and file_size > 0
+            and file_size <= trusted_hash_max_download_bytes(context.bot_data)
+            and file_size <= TELEGRAM_BOT_API_DOWNLOAD_LIMIT_BYTES
+        )
+        # Avoid unnecessary Telegram downloads when filename/size/group policy
+        # already blocks the file and no trusted-hash exception can be checked.
+        if pre_policy_scan.blocked and not can_hash_for_trusted_policy:
+            scan = pre_policy_scan
+        else:
+            scan = await scan_document(context, document, chat_id=chat.id)
+            async with BOT_DATA_LOCK:
+                scan = apply_group_scan_policy(context.bot_data, chat.id, scan, file_size=file_size)
     except Exception:
         logger.exception("Document scanner failed chat_id=%s message_id=%s", getattr(chat, "id", None), getattr(message, "message_id", None), exc_info=True)
         await safe_send_message(context, chat.id, tr_group(context.bot_data, chat.id, "unknown_error"))
@@ -6253,13 +6333,18 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         async with BOT_DATA_LOCK:
             settings = dict(get_group_settings(context.bot_data, chat.id))
 
-        group_notice = tr_group(context.bot_data, chat.id, "exe_removed_group", user=user_mention, reason=h(scan_reason))
-        if settings.get("silent_mode", False):
-            group_notice += tr_group(context.bot_data, chat.id, "silent_notice_auto_delete")
-            notice_id = await safe_send_message(context, chat.id, group_notice)
-            schedule_auto_delete_message(context, chat_id=chat.id, message_id=notice_id)
-        else:
-            await safe_send_message(context, chat.id, group_notice)
+        notification_policy = str(settings.get("notification_policy") or "group_and_admins")
+        send_group_notice = notification_policy in {"group_and_admins", "group_only"}
+        send_admin_notice = notification_policy in {"group_and_admins", "admins_only"}
+
+        if send_group_notice:
+            group_notice = tr_group(context.bot_data, chat.id, "exe_removed_group", user=user_mention, reason=h(scan_reason))
+            if settings.get("silent_mode", False):
+                group_notice += tr_group(context.bot_data, chat.id, "silent_notice_auto_delete")
+                notice_id = await safe_send_message(context, chat.id, group_notice)
+                schedule_auto_delete_message(context, chat_id=chat.id, message_id=notice_id)
+            else:
+                await safe_send_message(context, chat.id, group_notice)
 
         ikey = incident_key(chat.id, sender_id, message.message_id)
         async with BOT_DATA_LOCK:
@@ -6284,7 +6369,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             ensure_incident_action_token(context.bot_data, ikey)
             await persist_context_memory(context, reason="incident_created", force=True, caller_holds_lock=True)
         await maybe_apply_auto_action(context, chat_id=chat.id, sender_id=sender_id, sender_name=sender_name_raw, ikey=ikey)
-        await notify_admins(context, chat.id, chat.title or str(chat.id), sender, file_name, ikey, scan_reason)
+        if send_admin_notice:
+            await notify_admins(context, chat.id, chat.title or str(chat.id), sender, file_name, ikey, scan_reason)
     except Exception:
         logger.exception("Post-delete incident workflow failed chat_id=%s user_id=%s", chat.id, user_id, exc_info=True)
         await safe_send_message(context, chat.id, tr_group(context.bot_data, chat.id, "unknown_error"))
