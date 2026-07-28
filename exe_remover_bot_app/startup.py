@@ -153,8 +153,20 @@ def validate_startup_config(
         issues.append(ValidationIssue("warning", "cors_wildcard", "MINI_APP_CORS_ORIGINS=* is convenient but exact production origins are safer."))
 
     if _bool(config, "SERVER_LOG_PUBLIC_ACCESS"):
-        issues.append(ValidationIssue("warning", "public_server_logs", "SERVER_LOG_PUBLIC_ACCESS exposes operational logs publicly."))
+        issues.append(ValidationIssue("error", "public_server_logs", "SERVER_LOG_PUBLIC_ACCESS must remain false; operational logs may contain sensitive metadata."))
     if _bool(config, "SERVER_LOG_AUTH_QUERY_ENABLED"):
-        issues.append(ValidationIssue("warning", "query_log_key", "Query-string server-log keys can leak through browser and proxy logs."))
+        issues.append(ValidationIssue("error", "query_log_key", "Query-string server-log keys are disabled because URLs leak through browser and proxy logs."))
+
+    server_log_key = _text(config, "SERVER_LOG_API_KEY") or _text(config, "SERVER_LOG_TOKEN")
+    if server_log_key and (len(server_log_key) < 32 or _looks_like_placeholder(server_log_key)):
+        issues.append(ValidationIssue("error", "server_log_api_key", "SERVER_LOG_API_KEY must be a non-placeholder random value of at least 32 characters."))
+    if _bool(config, "SERVER_LOG_STORE_CLIENT_IP"):
+        issues.append(ValidationIssue("warning", "raw_client_ip_logs", "Raw client IP logging is enabled; privacy-safe fingerprints are recommended."))
+    if _bool(config, "MINI_APP_PUBLIC_DOCS_ENABLED"):
+        issues.append(ValidationIssue("warning", "public_api_docs", "Public OpenAPI documentation reveals protected administration route names."))
+    if _bool(config, "MINI_APP_PUBLIC_ROUTE_CATALOG_ENABLED"):
+        issues.append(ValidationIssue("warning", "public_route_catalog", "The public route catalog exposes additional API surface metadata."))
+    if _bool(config, "MINI_APP_FRONTEND_DEBUG_ENABLED"):
+        issues.append(ValidationIssue("warning", "frontend_debug", "Frontend debug mode should be disabled in production."))
 
     return StartupValidationReport(tuple(issues))

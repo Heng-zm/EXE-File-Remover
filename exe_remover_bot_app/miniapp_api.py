@@ -782,18 +782,25 @@ def _api_memory_overview_locked(bot_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _api_route_catalog() -> dict[str, Any]:
-    """Small public route catalog so a frontend can auto-wire API calls."""
+def _api_route_catalog(*, include_private: bool = True, include_developer: bool = False) -> dict[str, Any]:
+    """Return only the routes appropriate for the current authentication level."""
     prefix = MINI_APP_API_PREFIX
-    auth = "Send Telegram WebApp initData via X-Telegram-Init-Data or Authorization: tma <initData>."
-    return {
-        "auth": auth,
+    catalog: dict[str, Any] = {
+        "auth": "Send signed Telegram WebApp initData via X-Telegram-Init-Data.",
         "prefix": prefix,
         "public": {
             "root": "/",
             "health": f"{prefix}/health",
-            "routes": f"{prefix}/routes",
+            "bootstrap": f"{prefix}/bootstrap",
+            "scanner_presets": f"{prefix}/scanner/presets",
         },
+    }
+    if not include_private:
+        if MINI_APP_PUBLIC_ROUTE_CATALOG_ENABLED:
+            catalog["public"]["routes"] = f"{prefix}/routes"
+        return catalog
+
+    catalog.update({
         "session": {
             "auth_session": f"{prefix}/auth/session",
             "session_alias": f"{prefix}/session",
@@ -825,7 +832,9 @@ def _api_route_catalog() -> dict[str, Any]:
             "feedback": f"{prefix}/feedback",
             "incident_action": f"{prefix}/incidents/{{token_or_key}}/action",
         },
-        "developer": {
+    })
+    if include_developer:
+        catalog["developer"] = {
             "overview": f"{prefix}/developer/overview",
             "users": f"{prefix}/developer/users",
             "groups": f"{prefix}/developer/groups",
@@ -833,9 +842,8 @@ def _api_route_catalog() -> dict[str, Any]:
             "runtime_config": f"{prefix}/developer/runtime-config",
             "server_log": f"{prefix}/server/log",
             "server_logs_alias": f"{prefix}/server/logs",
-        },
-    }
-
+        }
+    return catalog
 
 def _api_public_bootstrap_payload(*, reason: str = "missing_init_data") -> dict[str, Any]:
     """Safe unauthenticated payload for frontend boot.
@@ -873,10 +881,10 @@ def _api_public_bootstrap_payload(*, reason: str = "missing_init_data") -> dict[
             "name": PROFESSIONAL_BRAND_NAME,
             "version": PROFESSIONAL_UI_VERSION,
             "prefix": MINI_APP_API_PREFIX,
-            "bot_id": runtime.BOT_ID,
+            "bot_id": runtime.BOT_ID if MINI_APP_EXPOSE_BOT_ID_PUBLICLY else None,
             "bot_username": runtime.BOT_USERNAME,
         },
-        "routes": _api_route_catalog(),
+        "routes": _api_route_catalog(include_private=False),
     }
 
 
@@ -888,18 +896,18 @@ def _api_frontend_config_payload() -> dict[str, Any]:
         "version": PROFESSIONAL_UI_VERSION,
         "api_prefix": MINI_APP_API_PREFIX,
         "dashboard_url": "/app",
-        "bot_id": runtime.BOT_ID,
+        "bot_id": runtime.BOT_ID if MINI_APP_EXPOSE_BOT_ID_PUBLICLY else None,
         "bot_username": runtime.BOT_USERNAME,
         "telegram_auth_required": True,
         "auth_header": "X-Telegram-Init-Data",
         "public_bootstrap_on_missing_initdata": MINI_APP_PUBLIC_BOOTSTRAP_ON_MISSING_INITDATA,
         "frontend_debug_enabled": MINI_APP_FRONTEND_DEBUG_ENABLED,
         "cors": {
-            "allow_origins": list(MINI_APP_CORS_ORIGINS),
-            "allow_headers": ["*"],
+            "wildcard": "*" in set(MINI_APP_CORS_ORIGINS),
+            "origin_count": len(tuple(MINI_APP_CORS_ORIGINS)),
             "allow_methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         },
-        "routes": _api_route_catalog(),
+        "routes": _api_route_catalog(include_private=False),
     }
 
 
@@ -925,7 +933,7 @@ def _api_session_payload_locked(bot_data: dict[str, Any], principal: MiniAppPrin
             "trusted_hashes": trusted_hash_whitelist_enabled(bot_data),
             "developer_dashboard": principal.user_id in BOT_OWNER_IDS,
         },
-        "routes": _api_route_catalog(),
+        "routes": _api_route_catalog(include_private=True, include_developer=principal.user_id in BOT_OWNER_IDS),
     }
     if include_groups:
         payload["groups"] = [_api_group_snapshot_locked(bot_data, principal.user_id, chat_id) for chat_id in group_ids]
@@ -1182,6 +1190,9 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         title=f"{PROFESSIONAL_BRAND_NAME} Mini App API",
         version=PROFESSIONAL_UI_VERSION,
         lifespan=lifespan,
+        docs_url="/docs" if MINI_APP_PUBLIC_DOCS_ENABLED else None,
+        redoc_url="/redoc" if MINI_APP_PUBLIC_DOCS_ENABLED else None,
+        openapi_url="/openapi.json" if MINI_APP_PUBLIC_DOCS_ENABLED else None,
     )
     cors_origins = [origin for origin in MINI_APP_CORS_ORIGINS if origin]
     cors_all = "*" in cors_origins or not cors_origins
@@ -1190,11 +1201,21 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         allow_origins=["*"] if cors_all else cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        # Let Vite/Telegram/frontends send auth/initData headers without CORS preflight surprises.
-        allow_headers=["*"],
+        allow_headers=[
+            "Content-Type", "Authorization", "X-Telegram-Init-Data",
+            "X-Telegram-Web-App-Data", "X-TMA-Init-Data", "Telegram-Init-Data",
+            "X-Request-ID",
+        ],
         expose_headers=["Content-Type", "X-Request-ID"],
         max_age=86400,
     )
+
+    if not MINI_APP_PUBLIC_DOCS_ENABLED:
+        @api.api_route("/docs", methods=["GET", "HEAD"], include_in_schema=False)
+        @api.api_route("/redoc", methods=["GET", "HEAD"], include_in_schema=False)
+        @api.api_route("/openapi.json", methods=["GET", "HEAD"], include_in_schema=False)
+        async def disabled_api_documentation() -> Response:
+            return Response(status_code=404)
 
     static_dir = Path(__file__).with_name("static")
     dashboard_index = static_dir / "index.html"
@@ -1230,8 +1251,11 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
         path = str(getattr(request.url, "path", "") or "")
         method = str(getattr(request, "method", "") or "").upper()
         client = getattr(request, "client", None)
-        client_host = str(getattr(client, "host", "") or "")
-        user_agent = _server_log_safe_text(str(request.headers.get("user-agent") or ""), max_chars=180)
+        client_host = privacy_safe_client_id(getattr(client, "host", ""))
+        user_agent = (
+            "<redacted>" if SERVER_LOG_REDACT_USER_AGENT
+            else _server_log_safe_text(str(request.headers.get("user-agent") or ""), max_chars=180)
+        )
         api_prefix_clean = MINI_APP_API_PREFIX.rstrip("/")
         server_log_paths = {f"{api_prefix_clean}/server/log", f"{api_prefix_clean}/server/logs"}
         healthcheck_paths = {"/", MINI_APP_API_PREFIX, f"{api_prefix_clean}/", f"{api_prefix_clean}/health"}
@@ -1248,6 +1272,14 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
             try:
                 response.headers["X-Request-ID"] = request_id
+                if MINI_APP_SECURITY_HEADERS_ENABLED:
+                    response.headers["X-Content-Type-Options"] = "nosniff"
+                    response.headers["Referrer-Policy"] = "no-referrer"
+                    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+                    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+                    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+                    if path.startswith(api_prefix_clean + "/"):
+                        response.headers["Cache-Control"] = "no-store"
             except Exception:
                 pass
 
@@ -1309,21 +1341,19 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             "name": PROFESSIONAL_BRAND_NAME,
             "version": PROFESSIONAL_UI_VERSION,
             "api_prefix": MINI_APP_API_PREFIX,
-            "docs": "/docs",
+            "docs": "/docs" if MINI_APP_PUBLIC_DOCS_ENABLED else None,
             "dashboard": "/app",
-            "routes": f"{MINI_APP_API_PREFIX}/routes",
             "bootstrap": f"{MINI_APP_API_PREFIX}/bootstrap",
-            "server_log": f"{MINI_APP_API_PREFIX}/server/log",
         }
 
     @api.get(MINI_APP_API_PREFIX)
     @api.get(f"{MINI_APP_API_PREFIX}/")
     async def api_index() -> dict[str, Any]:
-        return {"ok": True, "name": PROFESSIONAL_BRAND_NAME, "version": PROFESSIONAL_UI_VERSION, "routes": _api_route_catalog()}
+        return {"ok": True, "name": PROFESSIONAL_BRAND_NAME, "version": PROFESSIONAL_UI_VERSION, "routes": _api_route_catalog(include_private=False)}
 
     @api.get(f"{MINI_APP_API_PREFIX}/routes")
     async def api_routes() -> dict[str, Any]:
-        return {"ok": True, "routes": _api_route_catalog()}
+        return {"ok": True, "routes": _api_route_catalog(include_private=False)}
 
     @api.get(f"{MINI_APP_API_PREFIX}/health")
     async def api_health() -> dict[str, Any]:
@@ -1331,7 +1361,7 @@ def create_mini_app_fastapi(application: Application, webhook_url: str) -> Any:
             "ok": True,
             "service": PROFESSIONAL_BRAND_NAME,
             "version": PROFESSIONAL_UI_VERSION,
-            "bot_id": runtime.BOT_ID,
+            "bot_id": runtime.BOT_ID if MINI_APP_EXPOSE_BOT_ID_PUBLICLY else None,
             "bot_username": runtime.BOT_USERNAME,
             "mode": "WEBHOOK+API",
             "uptime_seconds": process_status_snapshot().get("uptime_seconds", 0.0),

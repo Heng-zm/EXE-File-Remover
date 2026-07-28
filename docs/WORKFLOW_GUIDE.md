@@ -1,6 +1,6 @@
 # Coordinated Workflow Guide
 
-Version 3.5.1 uses one shared workflow model for Telegram moderation, Mini App administration, policy changes, and state synchronization. This removes duplicated decisions between the bot and dashboard and gives administrators one traceable history.
+Version 3.5.2 uses one shared workflow model for Telegram moderation, Mini App administration, policy changes, and state synchronization. This removes duplicated decisions between the bot and dashboard and gives administrators one traceable history.
 
 ## File moderation lifecycle
 

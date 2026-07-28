@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import logging
 import os
 import platform
@@ -12,11 +14,15 @@ import traceback
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Callable
+from urllib.parse import urlsplit, urlunsplit
 
 from .config import (
     BOT_TOKEN,
     REDIS_STATE_SIGNING_SECRET,
+    REDIS_URL,
     SERVER_LOG_API_KEY,
+    SERVER_LOG_CLIENT_FINGERPRINT_SECRET,
+    SERVER_LOG_STORE_CLIENT_IP,
     SERVER_LOG_CAPTURE_DEBUG,
     SERVER_LOG_CAPTURE_INFO,
     SERVER_LOG_CAPTURE_PYTHON_LOGS,
@@ -25,6 +31,7 @@ from .config import (
     SERVER_LOG_TRACEBACK_MAX_CHARS,
     SERVER_LOG_VALUE_MAX_CHARS,
     SUPABASE_SERVICE_ROLE_KEY,
+    WEBHOOK_PATH_SECRET,
     WEBHOOK_SECRET_TOKEN,
 )
 
@@ -54,27 +61,74 @@ def _server_log_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _redact_url_credentials(text: str) -> str:
+    # Remove passwords, sensitive query values, and fragments from URLs.
+    def replace_url(match: re.Match[str]) -> str:
+        raw = match.group(0)
+        try:
+            parts = urlsplit(raw)
+        except Exception:
+            return "<redacted-url>"
+        if not parts.scheme or not parts.netloc:
+            return raw
+        host = parts.hostname or ""
+        if parts.port:
+            host = f"{host}:{parts.port}"
+        safe_query = "<redacted>" if parts.query else ""
+        safe_fragment = "<redacted>" if parts.fragment else ""
+        return urlunsplit((parts.scheme, host, parts.path, safe_query, safe_fragment))
+
+    return re.sub(r"(?i)\b(?:https?|redis|rediss)://[^\s<>]+", replace_url, text)
+
+
 def _server_log_safe_text(value: Any, *, max_chars: int | None = None) -> str:
+    # Return compact diagnostics text with credentials and personal data removed.
     limit = max(20, int(max_chars or SERVER_LOG_VALUE_MAX_CHARS))
     try:
         text = str(value)
     except Exception:
         text = repr(value)
 
-    secret_patterns = (
-        r"(?i)(initData|init_data|tgWebAppData|telegram_init_data|webAppData)=([^&\s]+)",
-        r"(?i)(hash)=([a-f0-9]{32,128})",
-        r"(?i)(token|secret|authorization|api[_-]?key|service[_-]?role[_-]?key)=([^&\s]+)",
+    text = _redact_url_credentials(text)
+    secret_patterns: tuple[tuple[str, str], ...] = (
+        (r"(?i)\b(Authorization\s*[:=]\s*)(?:(?:Bearer|Basic|TMA|Telegram|ServerLog)\s+)?[A-Za-z0-9._~+/=-]+", r"\1<redacted>"),
+        (r"(?i)\b(Bearer|Basic|TMA|Telegram|ServerLog)\s+[A-Za-z0-9._~+/=-]+", r"\1 <redacted>"),
+        (r"(?i)(initData|init_data|tgWebAppData|telegram_init_data|webAppData)=([^&\s]+)", r"\1=<redacted>"),
+        (r"(?i)(hash|token|secret|authorization|api[_-]?key|service[_-]?role[_-]?key|password|passwd|redis_url)=([^&\s,;]+)", r"\1=<redacted>"),
+        (r"(?i)([\"']?(?:initData|init_data|tgWebAppData|telegram_init_data|webAppData|hash|token|secret|authorization|api[_-]?key|service[_-]?role[_-]?key|password|passwd|redis_url)[\"']?\s*[:=]\s*)[\"']?([^\"'\s,}]+)[\"']?", r"\1<redacted>"),
+        (r"\b\d{5,15}:[A-Za-z0-9_-]{20,}\b", "<redacted-bot-token>"),
     )
-    for pattern in secret_patterns:
-        text = re.sub(pattern, r"\1=<redacted>", text)
+    for pattern, replacement_text in secret_patterns:
+        text = re.sub(pattern, replacement_text, text)
 
-    for secret_value in (BOT_TOKEN, WEBHOOK_SECRET_TOKEN, SERVER_LOG_API_KEY, SUPABASE_SERVICE_ROLE_KEY, REDIS_STATE_SIGNING_SECRET):
+    for secret_value in (
+        BOT_TOKEN,
+        WEBHOOK_SECRET_TOKEN,
+        WEBHOOK_PATH_SECRET,
+        SERVER_LOG_API_KEY,
+        SUPABASE_SERVICE_ROLE_KEY,
+        REDIS_STATE_SIGNING_SECRET,
+        REDIS_URL,
+    ):
         if secret_value:
             text = text.replace(str(secret_value), "<redacted>")
 
     text = text.replace(chr(0), "").strip()
     return text[: max(0, limit - 1)] + "…" if len(text) > limit else text
+
+
+def _is_sensitive_log_key(key: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "_", str(key or "").casefold()).strip("_")
+    sensitive_tokens = {
+        "authorization", "cookie", "set_cookie", "x_telegram_init_data",
+        "x_telegram_web_app_data", "initdata", "init_data", "webappdata",
+        "token", "secret", "password", "passwd", "api_key", "apikey",
+        "service_role_key", "redis_url", "session", "signature", "hash",
+    }
+    return normalized in sensitive_tokens or any(
+        normalized.endswith(f"_{token}") or normalized.startswith(f"{token}_")
+        for token in sensitive_tokens
+    )
 
 
 def _server_log_safe_value(value: Any, *, depth: int = 0) -> Any:
@@ -90,13 +144,21 @@ def _server_log_safe_value(value: Any, *, depth: int = 0) -> Any:
         safe: dict[str, Any] = {}
         for key, item in list(value.items())[:50]:
             key_text = _server_log_safe_text(key, max_chars=80)
-            if key_text.casefold() in {"authorization", "cookie", "set-cookie", "x-telegram-init-data", "x-telegram-web-app-data"}:
-                safe[key_text] = "<redacted>"
-            else:
-                safe[key_text] = _server_log_safe_value(item, depth=depth + 1)
+            safe[key_text] = "<redacted>" if _is_sensitive_log_key(key_text) else _server_log_safe_value(item, depth=depth + 1)
         return safe
     return _server_log_safe_text(value)
 
+
+def privacy_safe_client_id(value: Any) -> str:
+    # Raw IP storage is opt-in. The default is a keyed short fingerprint.
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if SERVER_LOG_STORE_CLIENT_IP:
+        return _server_log_safe_text(raw, max_chars=80)
+    secret = str(SERVER_LOG_CLIENT_FINGERPRINT_SECRET or "process-local-privacy-key").encode("utf-8")
+    digest = hmac.new(secret, raw.encode("utf-8", errors="ignore"), hashlib.sha256).hexdigest()[:16]
+    return f"client:{digest}"
 
 def server_log_event(category: str, level: str, message: str, **fields: Any) -> None:
     global _SERVER_LOG_SEQUENCE, _SERVER_LOG_ERROR_TOTAL, _SERVER_LOG_LAST_ERROR_UTC
@@ -253,6 +315,6 @@ def install_server_log_handler() -> None:
 
 __all__ = [
     "configure_runtime_provider", "increment_request_total", "install_server_log_handler", "_server_log_safe_text",
-    "_server_log_safe_value", "server_log_event", "server_log_snapshot",
+    "_server_log_safe_value", "privacy_safe_client_id", "server_log_event", "server_log_snapshot",
     "clear_server_logs", "server_log_counters", "process_status_snapshot",
 ]

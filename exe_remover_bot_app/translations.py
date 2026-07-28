@@ -1419,4 +1419,48 @@ V35_KHMER_UI_TEXTS: dict[str, str] = {
 TEXTS.setdefault("km", {}).update(V35_KHMER_UI_TEXTS)
 
 
-__all__ = ["TEXTS", "FIRST_TIME_DASHBOARD_TEXTS", "V35_KHMER_UI_TEXTS"]
+CALLBACK_UX_TEXTS: dict[str, dict[str, str]] = {
+    "en": {
+        "callback_opening": "Opening…",
+        "callback_loading": "Loading…",
+        "callback_processing": "Processing…",
+        "callback_saving": "Saving changes…",
+        "callback_refreshing": "Refreshing…",
+        "callback_action_processing": "Applying action…",
+        "callback_already_processing": "This action is already being processed. Please wait a moment.",
+        "callback_invalid": "This button is invalid or outdated. Please reopen the latest panel.",
+        "callback_expired_alert": "This incident has expired or was already removed.",
+        "callback_done_alert": "Another admin already handled this incident.",
+        "callback_not_admin_alert": "You no longer have admin permission for this group.",
+        "callback_failed_alert": "I could not complete that action. Please try again.",
+        "callback_saved_alert": "Saved successfully.",
+        "callback_cancelled_alert": "Cancelled. No changes were made.",
+        "callback_security_blocked": "For security, this setting can only be changed in private chat.",
+        "callback_retry_hint": "Please reopen the latest panel and try again.",
+        "error_reference": "Reference: <code>{reference}</code>",
+    },
+    "km": {
+        "callback_opening": "កំពុងបើក…",
+        "callback_loading": "កំពុងផ្ទុក…",
+        "callback_processing": "កំពុងដំណើរការ…",
+        "callback_saving": "កំពុងរក្សាទុក…",
+        "callback_refreshing": "កំពុងធ្វើបច្ចុប្បន្នភាព…",
+        "callback_action_processing": "កំពុងអនុវត្តចំណាត់ការ…",
+        "callback_already_processing": "ចំណាត់ការនេះកំពុងដំណើរការរួចហើយ។ សូមរង់ចាំបន្តិច។",
+        "callback_invalid": "ប៊ូតុងនេះផុតកំណត់ ឬមិនត្រឹមត្រូវ។ សូមបើកផ្ទាំងថ្មីបំផុតម្តងទៀត។",
+        "callback_expired_alert": "ករណីនេះផុតកំណត់ ឬត្រូវបានលុបរួចហើយ។",
+        "callback_done_alert": "Admin ផ្សេងទៀតបានចាត់ការករណីនេះរួចហើយ។",
+        "callback_not_admin_alert": "អ្នកលែងមានសិទ្ធិ Admin សម្រាប់ក្រុមនេះទៀតហើយ។",
+        "callback_failed_alert": "ខ្ញុំមិនអាចបញ្ចប់ចំណាត់ការនេះបានទេ។ សូមព្យាយាមម្តងទៀត។",
+        "callback_saved_alert": "បានរក្សាទុកដោយជោគជ័យ។",
+        "callback_cancelled_alert": "បានបោះបង់។ មិនមានការកែប្រែទេ។",
+        "callback_security_blocked": "ដើម្បីសុវត្ថិភាព ការកំណត់នេះអាចកែបានតែក្នុង Private Chat ប៉ុណ្ណោះ។",
+        "callback_retry_hint": "សូមបើកផ្ទាំងថ្មីបំផុត ហើយព្យាយាមម្តងទៀត។",
+        "error_reference": "លេខយោង៖ <code>{reference}</code>",
+    },
+}
+for _lang, _values in CALLBACK_UX_TEXTS.items():
+    TEXTS.setdefault(_lang, {}).update(_values)
+
+
+__all__ = ["TEXTS", "FIRST_TIME_DASHBOARD_TEXTS", "V35_KHMER_UI_TEXTS", "CALLBACK_UX_TEXTS"]

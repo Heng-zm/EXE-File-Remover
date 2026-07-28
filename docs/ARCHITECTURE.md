@@ -1,4 +1,4 @@
-# v3.5.1 Architecture
+# v3.5.2 Architecture
 
 The application uses a thin deployment entrypoint and focused Python modules.
 
@@ -78,3 +78,9 @@ Core executable detections are deliberately evaluated before configurable allow-
 ## Persistence
 
 Schema v7 adds `workflow_history` as a bounded list. Workflow history stores JSON-safe metadata only and is included in Redis, Supabase, and supported local snapshots. The maximum retained history is 500 records with up to 24 events per record.
+
+## Callback and privacy boundary (v3.5.2)
+
+`callback_ux.py` owns process-local duplicate-action fingerprints. It hashes user/chat/action material before storage and never persists callback tokens. `bot.py` owns Telegram acknowledgement and bilingual feedback.
+
+`diagnostics.py` is the only path for structured operational logs. It redacts credentials recursively and converts client addresses to keyed fingerprints unless raw storage is explicitly enabled. Public API responses never include the protected developer route catalog.

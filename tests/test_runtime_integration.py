@@ -213,11 +213,32 @@ def test_runtime_builds_and_public_api_routes_respond():
     api = miniapp.create_mini_app_fastapi(application, "https://example.com/tg-webhook/test")
     assert len(api.routes) >= 50
     with TestClient(api) as client:
-        assert client.get("/").status_code == 200
-        assert client.get("/api/health").json()["ok"] is True
-        assert client.get("/api/routes").json()["ok"] is True
+        root_response = client.get("/")
+        assert root_response.status_code == 200
+        assert root_response.json()["docs"] is None
+        assert client.get("/docs").status_code == 404
+
+        health = client.get("/api/health")
+        assert health.json()["ok"] is True
+        assert health.json()["bot_id"] is None
+        assert health.headers["x-content-type-options"] == "nosniff"
+        assert health.headers["referrer-policy"] == "no-referrer"
+        assert health.headers["cache-control"] == "no-store"
+
+        routes_response = client.get("/api/routes")
+        assert routes_response.json()["ok"] is True
+        routes = routes_response.json()["routes"]
+        assert "developer" not in routes
+        assert "groups" not in routes
+
         assert client.get("/app").status_code == 200
         assert "EXE Remover Security" in client.get("/app").text
+
+        log_rows = bot.server_log_snapshot(limit=20)
+        request_rows = [row for row in log_rows if row.get("category") == "api_request"]
+        assert request_rows
+        assert all(row.get("client_host", "").startswith("client:") for row in request_rows)
+        assert all(row.get("user_agent") == "<redacted>" for row in request_rows)
         assert client.get("/app/assets/app.js").status_code == 200
         dashboard_config = client.get("/app/config.js")
         assert dashboard_config.status_code == 200

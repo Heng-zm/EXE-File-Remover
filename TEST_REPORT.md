@@ -1,19 +1,17 @@
-# v3.5.1 Coordinated Workflow Validation Report
+# v3.5.2 Security and Callback UX Validation Report
 
 - Python compilation: passed for the entrypoint, package modules, and tests.
-- Automated tests: **34 passed**.
+- Automated tests: **40 passed**.
 - JavaScript syntax: passed for `api.js`, `i18n.js`, and `app.js` using Node syntax checks.
 - Runtime construction: Telegram application builder completed using interface-compatible Telegram stubs.
-- Mini App construction: FastAPI application constructed **69 routes** and mounted the dashboard successfully.
-- Workflow integration: a real moderation handler test completed one linked flow through policy evaluation, scan, deletion, incident creation, automatic-action evaluation, notification routing, and completion.
-- Workflow engine: lifecycle transitions, bounded history/events, filtering, recovery of interrupted work, shared escalation, and group reconciliation tested.
-- Group synchronization: authenticated `/sync` refresh, reconciliation report, persistence path, and `/workflows` retrieval tested.
-- Public and protected routes: root, health, route catalog, dashboard assets, scanner presets, signed Telegram authentication, group policies, incidents, workflow history, and synchronization exercised.
-- Group policies: preset retrieval/application, custom policy updates, normalization, and preset detection tested.
-- Incidents: status/severity/action/search filters, sorting, pagination, counts, retention, and linked workflow IDs tested.
-- Scanner: executable names, hidden extensions, PE headers, normal ZIP folders, dangerous ZIP members, member limits, Unicode tricks, group policies, and unscannable files tested.
-- Persistence: schema v0-v7 migrations, future-schema rejection, revisions, bounded workflow history, local metadata, retry behavior, and stale-snapshot ordering tested.
-- Lifecycle: FastAPI lifespan, webhook registration, startup recovery, placeholder-secret rejection, public route responses, and shutdown paths executed in integration tests.
-- Packaging: wheel build and isolated installation are validated after the final source build; the thin entrypoint, workflow module, migrations, tests, documentation, and dashboard assets are included.
+- Mini App construction: FastAPI application constructed successfully with **68 routes** and public OpenAPI documentation disabled by default.
+- Public API privacy: public route metadata excludes group and developer surfaces; public bot ID is hidden by default.
+- HTTP hardening: `nosniff`, no-referrer, permissions policy, same-origin framing, same-site resource policy, request IDs, and API no-store caching verified.
+- Diagnostic privacy: URL credentials, Bearer/Basic/TMA authorization, Telegram initData, JSON secrets, service-role keys, Redis URLs, webhook secrets, and bot-token patterns are redacted.
+- Client metadata: raw IP storage is disabled by default and replaced with a stable keyed fingerprint; user-agent capture is redacted by default.
+- Startup validation: public logs, query-string log authentication, weak log API keys, placeholder tokens, and unsafe webhook settings are rejected in strict mode.
+- Callback UX: bilingual processing feedback, duplicate-tap rejection, invalid-button guidance, retryable failed incident actions, and callback-safe text validated.
+- Existing scanner, policies, incidents, workflow, schema, retry, dashboard, signed Telegram authentication, webhook lifecycle, persistence, and synchronization tests remain green.
+- Wheel packaging: version 3.5.2 built without dependency resolution, installed into an isolated target, and verified to include dashboard assets and the callback-safety module.
 
-The sandbox package index did not provide `python-telegram-bot==21.5`. Telegram runtime integration therefore uses interface-compatible stubs while exercising the real handlers, FastAPI application, signed authentication logic, workflow engine, policy engine, scanner, persistence code, and dashboard routes. Production installation remains pinned in `requirements.txt`.
+The sandbox package index did not provide `python-telegram-bot==21.5`. Telegram integration therefore uses interface-compatible stubs while exercising the real handlers, FastAPI application, signed authentication, callback workflow, scanner, policies, persistence, and dashboard routes. Production dependencies remain pinned in `requirements.txt`.

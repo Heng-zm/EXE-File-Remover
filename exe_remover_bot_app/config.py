@@ -120,6 +120,11 @@ SUPABASE_AUTOSAVE_MIN_INTERVAL_SECONDS = _env_float(
 # network latency, while force=True still skips backend save intervals.
 MEMORY_SAVE_DEBOUNCE_SECONDS = _env_float("MEMORY_SAVE_DEBOUNCE_SECONDS", 1.25, min_value=0.0)
 
+# Callback UX and duplicate-tap protection. Telegram clients can submit the same
+# destructive/toggle action more than once when users tap quickly on slow networks.
+CALLBACK_DEDUP_WINDOW_SECONDS = _env_float("CALLBACK_DEDUP_WINDOW_SECONDS", 1.5, min_value=0.0)
+CALLBACK_RECENT_MAX_ITEMS = _env_int("CALLBACK_RECENT_MAX_ITEMS", 10_000, min_value=100, max_value=100_000)
+
 # v3.5 persistence retry policy. Retries use exponential backoff with jitter.
 PERSISTENCE_RETRY_ATTEMPTS = _env_int("PERSISTENCE_RETRY_ATTEMPTS", 4, min_value=1, max_value=10)
 PERSISTENCE_RETRY_BASE_DELAY_SECONDS = _env_float("PERSISTENCE_RETRY_BASE_DELAY_SECONDS", 0.35, min_value=0.0)
@@ -253,7 +258,13 @@ MINI_APP_WEBHOOK_SECRET_HEADER_ENABLED = _env_bool("MINI_APP_WEBHOOK_SECRET_HEAD
 # payload so React can render an "Open in Telegram" / retry state instead
 # of crashing on a 401 response.
 MINI_APP_PUBLIC_BOOTSTRAP_ON_MISSING_INITDATA = _env_bool("MINI_APP_PUBLIC_BOOTSTRAP_ON_MISSING_INITDATA", True)
-MINI_APP_FRONTEND_DEBUG_ENABLED = _env_bool("MINI_APP_FRONTEND_DEBUG_ENABLED", True)
+MINI_APP_FRONTEND_DEBUG_ENABLED = _env_bool("MINI_APP_FRONTEND_DEBUG_ENABLED", False)
+# Production privacy defaults. Public OpenAPI docs and the full route catalog
+# reveal internal administration surfaces even when the routes are protected.
+MINI_APP_PUBLIC_DOCS_ENABLED = _env_bool("MINI_APP_PUBLIC_DOCS_ENABLED", False)
+MINI_APP_PUBLIC_ROUTE_CATALOG_ENABLED = _env_bool("MINI_APP_PUBLIC_ROUTE_CATALOG_ENABLED", False)
+MINI_APP_EXPOSE_BOT_ID_PUBLICLY = _env_bool("MINI_APP_EXPOSE_BOT_ID_PUBLICLY", False)
+MINI_APP_SECURITY_HEADERS_ENABLED = _env_bool("MINI_APP_SECURITY_HEADERS_ENABLED", True)
 
 # In-memory API/server diagnostics for the Telegram Mini App frontend.
 # These logs are process-local, bounded, and intentionally do not persist to
@@ -282,6 +293,15 @@ SERVER_LOG_PUBLIC_ACCESS = _env_bool("SERVER_LOG_PUBLIC_ACCESS", False)
 SERVER_LOG_CAPTURE_LOG_ENDPOINT = _env_bool("SERVER_LOG_CAPTURE_LOG_ENDPOINT", False)
 # Health-check HEAD requests should be accepted and not counted as API errors.
 SERVER_LOG_CAPTURE_HEALTHCHECKS = _env_bool("SERVER_LOG_CAPTURE_HEALTHCHECKS", False)
+# Never store raw visitor IP addresses by default. A short keyed fingerprint is
+# enough to correlate abuse without retaining directly identifying network data.
+SERVER_LOG_STORE_CLIENT_IP = _env_bool("SERVER_LOG_STORE_CLIENT_IP", False)
+SERVER_LOG_CLIENT_FINGERPRINT_SECRET = (
+    _env_str("SERVER_LOG_CLIENT_FINGERPRINT_SECRET")
+    or REDIS_STATE_SIGNING_SECRET
+    or WEBHOOK_PATH_SECRET
+)
+SERVER_LOG_REDACT_USER_AGENT = _env_bool("SERVER_LOG_REDACT_USER_AGENT", True)
 
 # ─────────────────────────────────────────────────────────────
 # DEFAULT BOT MIDDLEWARE CONFIG
@@ -312,7 +332,7 @@ DEFAULT_MIDDLEWARE_CONFIG: dict[str, int | float | bool] = {
 # Environment variables can still override the release label/brand without
 # requiring code edits.
 PROFESSIONAL_UI_ENABLED = _env_bool("PROFESSIONAL_UI_ENABLED", True)
-PROFESSIONAL_UI_VERSION = _env_str("PROFESSIONAL_UI_VERSION", "v3.5.1") or "v3.5.1"
+PROFESSIONAL_UI_VERSION = _env_str("PROFESSIONAL_UI_VERSION", "v3.5.2") or "v3.5.2"
 PROFESSIONAL_BRAND_NAME = _env_str("PROFESSIONAL_BRAND_NAME", "EXE Remover Security Bot") or "EXE Remover Security Bot"
 
 # Lightweight bot middleware controls. PTB has no Express-style middleware,

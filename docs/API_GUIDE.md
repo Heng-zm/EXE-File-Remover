@@ -1,4 +1,4 @@
-# EXE Remover Security Bot v3.5.1 — Mini App API
+# EXE Remover Security Bot v3.5.2 — Mini App API
 
 ## Base paths
 
@@ -195,7 +195,7 @@ Developer-only endpoints remain available under `/api/developer/*` and `/api/ser
 
 ---
 
-## v3.5.1 Workflow API
+## v3.5.2 Workflow API
 
 ### List group workflows
 
@@ -250,3 +250,16 @@ Incident responses now include:
 ```
 
 `workflow_id` identifies the original file-moderation run. `last_action_workflow_id` identifies the latest Mini App warn/ban/ignore workflow.
+
+## v3.5.2 public-surface security
+
+Production defaults intentionally minimize unauthenticated metadata:
+
+- `/docs`, `/redoc`, and `/openapi.json` return `404` unless `MINI_APP_PUBLIC_DOCS_ENABLED=true`.
+- `/api/routes` returns only the minimal public catalog. Signed users receive group routes in bootstrap; bot owners receive developer routes.
+- `/api/health` does not expose webhook paths, secrets, or the numeric bot ID by default.
+- API responses include security headers and `Cache-Control: no-store`.
+- Server logs reject query-string API keys and public access in strict startup mode.
+- Raw client IP and user-agent storage are disabled by default.
+
+Use `X-Server-Log-Key` or `Authorization: Bearer <key>` only from a protected owner tool. Never embed the log key in the public Mini App frontend.

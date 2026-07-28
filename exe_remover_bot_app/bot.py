@@ -25,7 +25,7 @@ import zipfile
 from collections import deque
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
-from html import escape as html_escape
+from html import escape as html_escape, unescape as html_unescape
 from typing import Any, Generic, Iterable, TypeVar
 from urllib.parse import parse_qsl
 
@@ -66,6 +66,7 @@ from telegram.ext import (
 )
 
 from .config import *
+from .callback_ux import claim_callback_action as claim_callback_action_once
 from .diagnostics import (
     _server_log_safe_text,
     _server_log_safe_value,
@@ -73,6 +74,7 @@ from .diagnostics import (
     configure_runtime_provider,
     increment_request_total,
     install_server_log_handler,
+    privacy_safe_client_id,
     process_status_snapshot,
     server_log_counters,
     server_log_event,
@@ -1718,33 +1720,75 @@ async def _sleep_for_retry_after(exc: RetryAfter, *, operation: str) -> bool:
     return True
 
 
-async def safe_answer_callback(query: Any, text: str | None = None, *, show_alert: bool = False) -> None:
-    """Answer callback queries immediately without blocking heavy callback flows.
-
-    Callback acknowledgements clear Telegram's mobile loading spinner.  This
-    helper must not sleep/retry on RetryAfter because callbacks call it before
-    permission checks, cache refreshes, and persistence scheduling.
-    """
+async def safe_answer_callback(query: Any, text: str | None = None, *, show_alert: bool = False) -> bool:
+    """Acknowledge a callback immediately and never block the main action."""
     if query is None:
-        return
+        return False
+    callback_text = html_unescape(re.sub(r"<[^>]+>", "", str(text or ""))).strip()
+    callback_text = callback_text[:200] or None
     try:
-        await query.answer(text=text, show_alert=show_alert)
+        await query.answer(text=callback_text, show_alert=show_alert)
+        return True
     except RetryAfter as exc:
         delay = float(getattr(exc, "retry_after", 0) or 0)
-        logger.warning(
-            "Callback answer rate-limited retry_after=%.2fs; skipping retry to keep callback responsive",
-            delay,
-            exc_info=True,
-        )
+        logger.warning("Callback acknowledgement rate-limited retry_after=%.2fs", delay)
     except BadRequest as exc:
-        # Stale callbacks are common when an old inline keyboard is tapped.
         lowered = str(exc).casefold()
         if "query is too old" not in lowered and "query_id_invalid" not in lowered:
-            logger.debug("callback answer skipped: %s", exc)
+            logger.debug("callback acknowledgement skipped: %s", _server_log_safe_text(exc, max_chars=180))
     except TelegramError:
-        logger.debug("callback answer failed", exc_info=True)
+        logger.debug("callback acknowledgement failed", exc_info=True)
     except Exception:
-        logger.exception("Unexpected callback answer failure", exc_info=True)
+        logger.exception("Unexpected callback acknowledgement failure", exc_info=True)
+    return False
+
+
+async def callback_ack(
+    context: ContextTypes.DEFAULT_TYPE,
+    query: Any,
+    user_id: int,
+    key: str = "callback_processing",
+    *,
+    show_alert: bool = False,
+) -> bool:
+    return await safe_answer_callback(query, text=tr(context.bot_data, int(user_id), key), show_alert=show_alert)
+
+
+async def callback_mutation_guard(
+    context: ContextTypes.DEFAULT_TYPE,
+    query: Any,
+    user_id: int,
+    *,
+    ack_key: str = "callback_saving",
+) -> bool:
+    if not await claim_callback_action_once(
+        query,
+        cooldown_seconds=CALLBACK_DEDUP_WINDOW_SECONDS,
+        max_items=CALLBACK_RECENT_MAX_ITEMS,
+    ):
+        await callback_ack(context, query, user_id, "callback_already_processing", show_alert=False)
+        return False
+    await callback_ack(context, query, user_id, ack_key)
+    return True
+
+
+async def callback_invalid(
+    context: ContextTypes.DEFAULT_TYPE,
+    query: Any,
+    user_id: int,
+    *,
+    edit_message: bool = False,
+    answer_query: bool = True,
+) -> None:
+    if answer_query:
+        await callback_ack(context, query, user_id, "callback_invalid", show_alert=True)
+    if edit_message:
+        await safe_edit_query(
+            query,
+            f"⚠️ {tr(context.bot_data, int(user_id), 'callback_invalid')}\n\n"
+            f"{tr(context.bot_data, int(user_id), 'callback_retry_hint')}",
+            reply_markup=dashboard_back_home_keyboard(context.bot_data, int(user_id)),
+        )
 
 
 async def safe_send_message_result(
@@ -1877,7 +1921,7 @@ async def safe_reply(update: Update, text: str, *, reply_markup: InlineKeyboardM
             return
 
 
-async def safe_edit_query(query: Any, text: str, *, reply_markup: InlineKeyboardMarkup | None = None) -> None:
+async def safe_edit_query(query: Any, text: str, *, reply_markup: InlineKeyboardMarkup | None = None) -> bool:
     for attempt in (1, 2):
         try:
             await query.edit_message_text(
@@ -1886,21 +1930,27 @@ async def safe_edit_query(query: Any, text: str, *, reply_markup: InlineKeyboard
                 reply_markup=reply_markup,
                 disable_web_page_preview=True,
             )
-            return
+            return True
         except RetryAfter as exc:
             if attempt == 1 and await _sleep_for_retry_after(exc, operation="edit_message_text"):
                 continue
-            return
+            return False
         except BadRequest as exc:
-            if "message is not modified" not in str(exc).casefold():
+            lowered = str(exc).casefold()
+            if "message is not modified" in lowered:
+                return True
+            if "message to edit not found" in lowered or "message can't be edited" in lowered:
+                logger.info("callback panel is stale and cannot be edited")
+            else:
                 logger.exception("edit_message_text failed", exc_info=True)
-            return
+            return False
         except TelegramError:
             logger.exception("edit_message_text failed", exc_info=True)
-            return
+            return False
         except Exception:
             logger.exception("Unexpected edit_message_text failure", exc_info=True)
-            return
+            return False
+    return False
 
 
 async def safe_edit_message(
@@ -3198,7 +3248,7 @@ def callback_is_private(query: Any) -> bool:
 
 async def reject_group_config_callback(query: Any, bot_data: dict[str, Any], user_id: int) -> None:
     try:
-        await safe_answer_callback(query, text=tr(bot_data, user_id, "config_private_only"), show_alert=True)
+        await safe_answer_callback(query, text=tr(bot_data, user_id, "callback_security_blocked"), show_alert=True)
     except TelegramError as exc:
         logger.exception("Could not answer private-only callback warning", exc_info=True)
 
@@ -4377,7 +4427,7 @@ async def navigation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await safe_answer_callback(query)
+    await callback_ack(context, query, user_id, "callback_opening")
     data = query.data or ""
     if data == "nav:home":
         await clear_pending_format_edit(context, user_id)
@@ -4434,13 +4484,17 @@ async def developer_dashboard_callback(update: Update, context: ContextTypes.DEF
     if not _dev_is_owner(user_id):
         await safe_answer_callback(query, text=tr(context.bot_data, user_id, "dev_only_alert"), show_alert=True)
         await safe_edit_query(query, tr(context.bot_data, user_id, "dev_only"), reply_markup=_developer_denied_keyboard(context.bot_data, user_id))
-        logger.warning("Developer dashboard denied user_id=%s callback=%r", user_id, query.data)
+        logger.warning("Developer dashboard denied user_id=%s", user_id)
         return
-    await safe_answer_callback(query)
-
     data = query.data or "dev:home"
     parts = data.split(":")
     action = parts[1] if len(parts) > 1 else "home"
+    sub_action = parts[2] if len(parts) > 2 else ""
+    if action == "hash" and sub_action in {"toggle", "size", "limit"}:
+        if not await callback_mutation_guard(context, query, user_id):
+            return
+    else:
+        await callback_ack(context, query, user_id, "callback_loading")
 
     if action in {"home", "refresh"}:
         await render_developer_dashboard(update, context, user_id)
@@ -4504,7 +4558,7 @@ async def group_dashboard_callback(update: Update, context: ContextTypes.DEFAULT
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await safe_answer_callback(query)
+    await callback_ack(context, query, user_id, "callback_loading")
     data = query.data or ""
     chat_id = _safe_chat_id_from_payload(data)
     if chat_id is None:
@@ -4529,17 +4583,18 @@ async def group_settings_callback(update: Update, context: ContextTypes.DEFAULT_
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await safe_answer_callback(query)
+    if not await callback_mutation_guard(context, query, user_id):
+        return
     data = query.data or ""
     parts = data.split(":", 2)
     if len(parts) != 3:
-        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        await callback_invalid(context, query, user_id, edit_message=True, answer_query=False)
         return
     _, chat_id_raw, field = parts
     try:
         chat_id = int(chat_id_raw)
     except ValueError:
-        await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
+        await callback_invalid(context, query, user_id, edit_message=True, answer_query=False)
         return
     if not await is_admin_or_owner(context, user_id, chat_id=chat_id, allow_api=True):
         await safe_edit_query(query, tr(context.bot_data, user_id, "group_admin_only"), reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id))
@@ -4584,7 +4639,8 @@ async def format_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await safe_answer_callback(query)
+    if not await callback_mutation_guard(context, query, user_id):
+        return
     data = query.data or ""
     parts = data.split(":", 2)
     if len(parts) != 3:
@@ -4651,7 +4707,8 @@ async def delete_format_callback(update: Update, context: ContextTypes.DEFAULT_T
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await safe_answer_callback(query)
+    if not await callback_mutation_guard(context, query, user_id):
+        return
     data = query.data or ""
     parts = data.split(":", 2)
     if len(parts) != 3:
@@ -4689,7 +4746,8 @@ async def allowed_formats_callback(update: Update, context: ContextTypes.DEFAULT
     user_id = query.from_user.id
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id); return
-    await safe_answer_callback(query)
+    if not await callback_mutation_guard(context, query, user_id):
+        return
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3:
         await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
@@ -4728,7 +4786,8 @@ async def delete_allowed_format_callback(update: Update, context: ContextTypes.D
     if not query or not query.from_user: return
     user_id = query.from_user.id
     if not callback_is_private(query): await reject_group_config_callback(query, context.bot_data, user_id); return
-    await safe_answer_callback(query)
+    if not await callback_mutation_guard(context, query, user_id):
+        return
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3: await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
     _, chat_id_raw, ext_raw = parts
@@ -4753,7 +4812,8 @@ async def group_admin_panel_callback(update: Update, context: ContextTypes.DEFAU
     if not query or not query.from_user: return
     user_id = query.from_user.id
     if not callback_is_private(query): await reject_group_config_callback(query, context.bot_data, user_id); return
-    await safe_answer_callback(query)
+    if not await callback_mutation_guard(context, query, user_id, ack_key="callback_loading"):
+        return
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3: await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
     _, chat_id_raw, action = parts
@@ -4814,7 +4874,8 @@ async def trusted_hash_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await safe_answer_callback(query)
+    if not await callback_mutation_guard(context, query, user_id):
+        return
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3:
         await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
@@ -4868,7 +4929,8 @@ async def delete_trusted_hash_callback(update: Update, context: ContextTypes.DEF
     if not callback_is_private(query):
         await reject_group_config_callback(query, context.bot_data, user_id)
         return
-    await safe_answer_callback(query)
+    if not await callback_mutation_guard(context, query, user_id):
+        return
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3:
         await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error"))
@@ -4896,7 +4958,8 @@ async def auto_actions_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if not query or not query.from_user: return
     user_id = query.from_user.id
     if not callback_is_private(query): await reject_group_config_callback(query, context.bot_data, user_id); return
-    await safe_answer_callback(query)
+    if not await callback_mutation_guard(context, query, user_id):
+        return
     parts = (query.data or "").split(":", 2)
     if len(parts) != 3: await safe_edit_query(query, tr(context.bot_data, user_id, "unknown_error")); return
     _, chat_id_raw, mode = parts
@@ -5645,9 +5708,10 @@ async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     query = update.callback_query
     if not query or not query.from_user:
         return
-    await safe_answer_callback(query)
+    user_id = int(query.from_user.id)
+    if not await callback_mutation_guard(context, query, user_id):
+        return
 
-    user_id = query.from_user.id
     data = query.data or ""
     lang = data.removeprefix("lang_")
     if lang not in TEXTS:
@@ -5712,7 +5776,8 @@ async def check_perm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             chat_type=str(getattr(query.message.chat, "type", "group")),
         )
 
-    await safe_answer_callback(query)
+    if not await callback_mutation_guard(context, query, user_id, ack_key="callback_refreshing"):
+        return
 
     retry_kb_private = InlineKeyboardMarkup([
         [InlineKeyboardButton(tr(context.bot_data, user_id, "btn_add_bot_admin"), url=build_add_group_url(username, request_admin=True))],
@@ -5795,17 +5860,20 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     if not query or not query.from_user:
         return
-    await safe_answer_callback(query)
 
-    admin_id = query.from_user.id
-    data = query.data or ""
+    admin_id = int(query.from_user.id)
+    data = str(query.data or "")
     parts = data.split(":", 2)
     if len(parts) != 3:
-        await safe_edit_query(query, tr(context.bot_data, admin_id, "unknown_error"))
+        await callback_invalid(context, query, admin_id, edit_message=True)
         return
     _, action, token_or_ikey = parts
-    if action not in {"ban", "warn", "ignore", "risk"}:
-        await safe_edit_query(query, tr(context.bot_data, admin_id, "unknown_error"))
+    if action not in {"ban", "warn", "ignore", "risk"} or not token_or_ikey:
+        await callback_invalid(context, query, admin_id, edit_message=True)
+        return
+
+    ack_key = "callback_loading" if action == "risk" else "callback_action_processing"
+    if not await callback_mutation_guard(context, query, admin_id, ack_key=ack_key):
         return
 
     ikey = resolve_incident_action_key(context.bot_data, token_or_ikey)
@@ -5814,18 +5882,30 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         async with BOT_DATA_LOCK:
             incidents = context.bot_data.setdefault("incidents", {})
             incident = incidents.get(ikey)
-            if not incident:
-                await safe_edit_query(query, tr(context.bot_data, admin_id, "action_expired"))
+            if not isinstance(incident, dict):
+                await safe_edit_query(
+                    query,
+                    f"⚠️ {tr(context.bot_data, admin_id, 'action_expired')}\n\n"
+                    f"{tr(context.bot_data, admin_id, 'callback_retry_hint')}",
+                    reply_markup=dashboard_back_home_keyboard(context.bot_data, admin_id),
+                )
                 return
             if incident.get("done") and action != "risk":
-                await safe_edit_query(query, tr(context.bot_data, admin_id, "action_done"))
+                final_text = format_incident_alert_for_admin(context.bot_data, admin_id, incident)
+                final_text += f"\n\n{tr(context.bot_data, admin_id, 'action_done')}"
+                await safe_edit_query(query, final_text)
                 return
             chat_id = int(incident["chat_id"])
             sender_id = int(incident.get("sender_id", 0))
             sender_name_raw = str(incident.get("sender_name") or "Unknown")
 
         if not await is_user_admin_in_group(context, chat_id, admin_id, allow_api=True):
-            await safe_edit_query(query, tr(context.bot_data, admin_id, "action_not_admin"))
+            await safe_edit_query(
+                query,
+                f"{tr(context.bot_data, admin_id, 'action_not_admin')}\n\n"
+                f"{tr(context.bot_data, admin_id, 'callback_retry_hint')}",
+                reply_markup=dashboard_back_home_keyboard(context.bot_data, admin_id),
+            )
             return
 
         if action == "risk":
@@ -5837,13 +5917,18 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 try:
                     profile_text = _format_user_risk_profile(context.bot_data, admin_id, incident)
                 except Exception:
-                    logger.exception("Risk profile render failed ikey=%s admin_id=%s", ikey, admin_id, exc_info=True)
-                    profile_text = tr(context.bot_data, admin_id, "unknown_error")
+                    reference = secrets.token_hex(4)
+                    logger.exception("Risk profile render failed reference=%s admin_id=%s", reference, admin_id, exc_info=True)
+                    profile_text = (
+                        f"❌ {tr(context.bot_data, admin_id, 'callback_failed_alert')}\n"
+                        f"{tr(context.bot_data, admin_id, 'error_reference', reference=reference)}"
+                    )
                 keyboard = action_keyboard(context.bot_data, admin_id, ikey) if not incident.get("done") else None
             await safe_edit_query(query, profile_text, reply_markup=keyboard)
             return
 
         result_msg = ""
+        action_success = False
         sender_name = h(sender_name_raw)
         if action == "ban":
             try:
@@ -5858,6 +5943,7 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         if ban_attempt == 1 and await _sleep_for_retry_after(exc, operation="ban_chat_member"):
                             continue
                         raise
+                action_success = True
                 result_msg = tr(context.bot_data, admin_id, "action_ban_ok", name=sender_name)
             except (TimedOut, BadRequest, Forbidden, TelegramError):
                 logger.exception("Ban failed chat_id=%s sender_id=%s", chat_id, sender_id, exc_info=True)
@@ -5872,6 +5958,7 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 send_result = await safe_send_message_result(context, chat_id, warn_text, operation="incident_warn")
                 if not send_result.ok:
                     raise TelegramError(send_result.error or "warning message could not be delivered")
+                action_success = True
                 result_msg = tr(context.bot_data, admin_id, "action_warn_ok", name=sender_name)
             except (TimedOut, BadRequest, Forbidden, TelegramError):
                 logger.exception("Warn failed chat_id=%s sender_id=%s", chat_id, sender_id, exc_info=True)
@@ -5880,12 +5967,8 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 logger.exception("Unexpected warn failure chat_id=%s sender_id=%s", chat_id, sender_id, exc_info=True)
                 result_msg = tr(context.bot_data, admin_id, "action_warn_fail")
         else:
+            action_success = True
             result_msg = tr(context.bot_data, admin_id, "action_ignore_ok")
-
-        action_success = action == "ignore" or result_msg in {
-            tr(context.bot_data, admin_id, "action_ban_ok", name=sender_name),
-            tr(context.bot_data, admin_id, "action_warn_ok", name=sender_name),
-        }
 
         async with BOT_DATA_LOCK:
             incident = context.bot_data.setdefault("incidents", {}).get(ikey)
@@ -5900,18 +5983,32 @@ async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 incident["handled_by_name"] = query.from_user.full_name
                 incident["handled_at_ms"] = now_ms()
                 incident["action"] = action
-            _record_admin_action_log_locked(context.bot_data, chat_id=chat_id, admin_id=admin_id, admin_name=query.from_user.full_name, action=f"incident {action}", target_id=sender_id, target_name=sender_name_raw, result="success" if action_success else "failed")
+            _record_admin_action_log_locked(
+                context.bot_data,
+                chat_id=chat_id,
+                admin_id=admin_id,
+                admin_name=query.from_user.full_name,
+                action=f"incident {action}",
+                target_id=sender_id,
+                target_name=sender_name_raw,
+                result="success" if action_success else "failed",
+            )
             await persist_context_memory(context, reason="incident_action", force=True, caller_holds_lock=True)
             final_text = format_incident_alert_for_admin(context.bot_data, admin_id, incident)
 
-        if not action_success and result_msg:
+        if result_msg:
             final_text += f"\n\n{result_msg}"
-        await safe_edit_query(query, final_text)
+        retry_keyboard = None if action_success else action_keyboard(context.bot_data, admin_id, ikey)
+        await safe_edit_query(query, final_text, reply_markup=retry_keyboard)
 
         if action_success:
             clicked_message_id = int(query.message.message_id) if query.message else None
-            await sync_handled_alert_messages(context, incident, exclude_admin_id=admin_id, exclude_message_id=clicked_message_id)
-
+            await sync_handled_alert_messages(
+                context,
+                incident,
+                exclude_admin_id=admin_id,
+                exclude_message_id=clicked_message_id,
+            )
 
 def _replace_group_id_in_sequence(values: Any, old_id: int, new_id: int) -> list[Any]:
     if not isinstance(values, list):
@@ -6969,7 +7066,31 @@ async def bot_middleware_post(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.exception("Unhandled exception while processing update", exc_info=context.error)
+    reference = secrets.token_hex(4)
+    error = getattr(context, "error", None)
+    exc_info = (type(error), error, error.__traceback__) if isinstance(error, BaseException) else True
+    logger.error("Unhandled update exception reference=%s", reference, exc_info=exc_info)
+
+    if not isinstance(update, Update):
+        return
+    user = update.effective_user
+    user_id = int(user.id) if user else 0
+    message = (
+        f"❌ {tr(context.bot_data, user_id, 'callback_failed_alert')}\n"
+        f"{tr(context.bot_data, user_id, 'error_reference', reference=reference)}"
+    )
+    query = update.callback_query
+    if query:
+        await safe_answer_callback(query, text=tr(context.bot_data, user_id, "callback_failed_alert"), show_alert=True)
+        edited = await safe_edit_query(
+            query,
+            f"{message}\n\n{tr(context.bot_data, user_id, 'callback_retry_hint')}",
+            reply_markup=dashboard_back_home_keyboard(context.bot_data, user_id) if user_id else None,
+        )
+        if edited:
+            return
+    if update.effective_message:
+        await safe_reply(update, message)
 
 
 def build_application() -> Application:
@@ -7097,6 +7218,11 @@ def startup_validation_snapshot() -> dict[str, Any]:
         "MINI_APP_CORS_ORIGINS": MINI_APP_CORS_ORIGINS,
         "SERVER_LOG_PUBLIC_ACCESS": SERVER_LOG_PUBLIC_ACCESS,
         "SERVER_LOG_AUTH_QUERY_ENABLED": SERVER_LOG_AUTH_QUERY_ENABLED,
+        "SERVER_LOG_API_KEY": SERVER_LOG_API_KEY,
+        "SERVER_LOG_STORE_CLIENT_IP": SERVER_LOG_STORE_CLIENT_IP,
+        "MINI_APP_PUBLIC_DOCS_ENABLED": MINI_APP_PUBLIC_DOCS_ENABLED,
+        "MINI_APP_PUBLIC_ROUTE_CATALOG_ENABLED": MINI_APP_PUBLIC_ROUTE_CATALOG_ENABLED,
+        "MINI_APP_FRONTEND_DEBUG_ENABLED": MINI_APP_FRONTEND_DEBUG_ENABLED,
     }
 
 
